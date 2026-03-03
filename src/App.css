@@ -1,0 +1,82 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  font-family: sans-serif;
+}
+
+.left-pane {
+  width: 30%;
+  border-right: 1px solid #ccc;
+  background-color: #f9f9f9;
+  display: flex;
+  flex-direction: column;
+}
+
+.right-pane {
+  width: 70%;
+  background-color: #1a1a1a;
+  color: white;
+  position: relative;
+}
+
+/* Chat Styling */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px;
+}
+
+.message-list {
+  flex-grow: 1;
+  overflow-y: auto;
+  margin-bottom: 20px;
+}
+
+.message {
+  padding: 10px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+}
+
+.message.user {
+  background-color: #007bff;
+  color: white;
+  align-self: flex-end;
+}
+
+.message.system {
+  background-color: #e9ecef;
+  color: black;
+  align-self: flex-start;
+}
+
+.input-form {
+  display: flex;
+  gap: 10px;
+}
+
+.input-form input {
+  flex-grow: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+/* Simulation Styling */
+.simulation-panel, .canvas-container {
+  width: 100%;
+  height: 100%;
+}
+
+.placeholder {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  color: #888;
+  font-size: 1.5rem;
+}
