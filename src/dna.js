@@ -1,28 +1,27 @@
-<script type="module">
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  dna-helix.js  ·  Three.js DNA Double Helix  ·  Seekro Platform
+ * dna-helix.js  ·  Three.js DNA Double Helix  ·  Seekro Platform
  * ═══════════════════════════════════════════════════════════════════════
  *
- *  Architecture:
- *    initDnaHelix(containerElement)
- *      → mounts renderer, Three.js scene, and HTML overlays
- *        entirely WITHIN containerElement (not document.body)
- *      → returns cleanup() for React useEffect return / unmount
+ * Architecture:
+ * initDnaHelix(containerElement)
+ * → mounts renderer, Three.js scene, and HTML overlays
+ * entirely WITHIN containerElement (not document.body)
+ * → returns cleanup() for React useEffect return / unmount
  *
- *  Usage in React:
- *    useEffect(() => {
- *      const cleanup = initDnaHelix(containerRef.current);
- *      return cleanup;
- *    }, []);
+ * Usage in React:
+ * useEffect(() => {
+ * const cleanup = initDnaHelix(containerRef.current);
+ * return cleanup;
+ * }, []);
  *
- *  B-form DNA parameters (all scaled for screen, ratios preserved):
- *    - 10 base pairs per full helical turn
- *    - 36° rotation between adjacent base pairs
- *    - Each strand offset by π from the other (antiparallel)
- *    - Watson-Crick pairing: A–T (2 H-bonds), C–G (3 H-bonds)
+ * B-form DNA parameters (all scaled for screen, ratios preserved):
+ * - 10 base pairs per full helical turn
+ * - 36° rotation between adjacent base pairs
+ * - Each strand offset by π from the other (antiparallel)
+ * - Watson-Crick pairing: A–T (2 H-bonds), C–G (3 H-bonds)
  *
- *  Dependencies: three, three/addons/controls/OrbitControls.js
+ * Dependencies: three, three/addons/controls/OrbitControls.js
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -502,10 +501,10 @@ export function initDnaHelix(containerElement) {
   /* ── Selection / Highlight State ─────────────────────── */
   /**
    * Highlighting technique:
-   *   On click  → store each mesh's original emissive + intensity,
-   *               set emissive = mesh.color (glow matching the base colour),
-   *               set emissiveIntensity = 0.  (will pulse via Math.sin)
-   *   On close  → restore stored values.
+   * On click  → store each mesh's original emissive + intensity,
+   * set emissive = mesh.color (glow matching the base colour),
+   * set emissiveIntensity = 0.  (will pulse via Math.sin)
+   * On close  → restore stored values.
    *
    * Using emissive instead of a bloom pass keeps us dependency-free.
    * The pulse effect in the animation loop makes the selection visible
@@ -538,11 +537,11 @@ export function initDnaHelix(containerElement) {
   /* ── Raycaster ────────────────────────────────────────── */
   /**
    * Raycasting logic:
-   *  1. Convert click pixel (clientX/Y) → NDC via getBoundingClientRect.
-   *  2. setFromCamera shoots a ray from the camera through NDC point.
-   *  3. intersectObjects tests only the clickable base meshes (not backbone).
-   *  4. The first hit object's userData carries base/pairIndex/complement.
-   *  5. We then highlight all pairMeshes (both halves + both spheres).
+   * 1. Convert click pixel (clientX/Y) → NDC via getBoundingClientRect.
+   * 2. setFromCamera shoots a ray from the camera through NDC point.
+   * 3. intersectObjects tests only the clickable base meshes (not backbone).
+   * 4. The first hit object's userData carries base/pairIndex/complement.
+   * 5. We then highlight all pairMeshes (both halves + both spheres).
    */
   const raycaster = new THREE.Raycaster();
   const ndc       = new THREE.Vector2();
