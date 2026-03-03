@@ -7,27 +7,64 @@
   font-family: sans-serif;
 }
 
+/* Update these existing classes */
 .left-pane {
   width: 30%;
   border-right: 1px solid #ccc;
   background-color: #f9f9f9;
   display: flex;
   flex-direction: column;
+  transition: all 0.3s ease-in-out; /* Adds smooth sliding */
+  overflow: hidden; /* Prevents text bleeding when collapsing */
+}
+
+.left-pane.collapsed {
+  width: 0;
+  border-right: none;
+  opacity: 0;
 }
 
 .right-pane {
-  width: 70%;
+  flex-grow: 1; /* Tells it to take up all remaining space */
   background-color: #1a1a1a;
   color: white;
   position: relative;
+  transition: all 0.3s ease-in-out;
 }
 
-/* Chat Styling */
 .chat-panel {
+  width: 30vw; /* Hardcoded width so the chat doesn't squish during animation */
+  min-width: 300px;
   display: flex;
   flex-direction: column;
   height: 100%;
   padding: 20px;
+}
+
+/* Add this new button styling at the bottom of your file */
+.toggle-chat-btn {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  z-index: 50; /* Keeps it hovering above the 3D canvas */
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: bold;
+  font-family: sans-serif;
+  backdrop-filter: blur(4px);
+  transition: all 0.2s ease-in-out;
+}
+
+.toggle-chat-btn:hover {
+  background: rgba(0, 0, 0, 0.9);
+}
+
+.toggle-chat-btn:active {
+  transform: scale(0.95); /* Satisfying click effect */
 }
 
 .message-list {
