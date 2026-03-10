@@ -1,0 +1,2186 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU Architecture & Parallel Processing Simulation</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0a0a0f; color: #e0e0e0; }
+        canvas { display: block; }
+        #ui-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 300px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        #ui-overlay label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #a0d0ff;
+        }
+        #ui-overlay input[type="range"], #ui-overlay select, #ui-overlay button {
+            width: 100%;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #333;
+            background-color: #222;
+            color: #e0e0e0;
+            font-size: 0.9em;
+            box-sizing: border-box;
+        }
+        #ui-overlay input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+            box-shadow: 0 0 2px rgba(0, 123, 255, 0.8);
+        }
+        #ui-overlay input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+            box-shadow: 0 0 2px rgba(0, 123, 255, 0.8);
+        }
+        #ui-overlay button {
+            background-color: #007bff;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #ui-overlay button:hover {
+            background-color: #0056b3;
+        }
+        #ui-overlay .metrics {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+            font-size: 0.9em;
+            color: #c0c0c0;
+        }
+        #ui-overlay .metrics div {
+            margin-bottom: 5px;
+        }
+        .control-group {
+            margin-bottom: 10px;
+        }
+        .control-group label {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui-overlay">
+        <h2>GPU Simulation Controls</h2>
+
+        <div class="control-group">
+            <label for="processingMode">Processing Mode:</label>
+            <select id="processingMode">
+                <option value="gpu">GPU (Parallel - Throughput)</option>
+                <option value="cpu">CPU (Serial - Latency)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="coreCount">Core Count: <span id="coreCountValue">256</span></label>
+            <input type="range" id="coreCount" min="128" max="10240" value="256" step="128">
+        </div>
+
+        <div class="control-group">
+            <label for="clockSpeed">Clock Speed (GHz): <span id="clockSpeedValue">1.5</span></label>
+            <input type="range" id="clockSpeed" min="0.5" max="5.0" value="1.5" step="0.1">
+        </div>
+
+        <div class="control-group">
+            <label for="computeMode">Workload Type:</label>
+            <select id="computeMode">
+                <option value="graphics">Graphics (Pixel Shading)</option>
+                <option value="compute">Compute (Matrix Multiplication)</option>
+            </select>
+        </div>
+
+        <button id="playPauseBtn">Pause</button>
+        <button id="resetBtn">Reset</button>
+
+        <div class="metrics">
+            <div>GFLOPS: <span id="gflopsValue">0.00</span></div>
+            <div>Memory Bandwidth: <span id="memoryBandwidthValue">0.00</span> GB/s</div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Core Simulation Parameters ---
+        const SIM_PARAMS = {
+            processingMode: 'gpu', // 'gpu' or 'cpu'
+            coreCount: 256,
+            clockSpeedGHz: 1.5,
+            computeMode: 'graphics', // 'graphics' or 'compute'
+            animationSpeed: 1.0, // Global speed multiplier
+            paused: false,
+            branchDivergenceChance: 0.0005, // Chance per frame for a core to stall
+            dataPacketSizeKB: 4, // Average size of a data packet in KB
+            maxDataPackets: 2000, // Max data packets in flight for GPU mode
+            maxCPUPackets: 5, // Max data packets in flight for CPU mode
+            smCount: 8, // Number of Streaming Multiprocessors (SMs)
+            coresPerSM: 32, // Cores per SM (initial value, will be adjusted by coreCount)
+            packetGenerationRate: 0.05, // Packets per frame per SM (GPU) or per frame (CPU)
+            packetTravelSpeed: 0.02, // Speed of data packets
+            coreProcessingTime: 100, // Base frames for a core to process a packet
+            memoryAccessTime: 30, // Base frames for data to move through each memory stage
+        };
+
+        // --- Three.js Setup ---
+        let scene, camera, renderer, controls;
+        let gpuGroup, cpuGroup; // Groups for GPU and CPU visualizations
+        let coreInstancedMesh, dataPacketInstancedMesh;
+        let vramMesh, l2CacheMesh, l1CacheMesh, registersMesh;
+        let pipelineF, pipelineD, pipelineE; // Fetch, Decode, Execute stages
+        let cpuCoreMesh;
+
+        const coreStates = []; // Stores { active: bool, processingTime: int, smId: int, stalled: bool } for each core
+        const dataPackets = []; // Stores { instanceId: int, state: string, targetCoreId: int, progress: float, startTime: float }
+        const coreTransforms = []; // Array of Matrix4 for InstancedMesh transforms
+        const coreColors = []; // Array of Color for InstancedMesh colors
+
+        // --- Colors ---
+        const COLORS = {
+            background: new THREE.Color(0x0a0a0f),
+            vram: new THREE.Color(0x8844ff),
+            l2Cache: new THREE.Color(0x4488ff),
+            l1Cache: new THREE.Color(0x44ff88),
+            registers: new THREE.Color(0xff8844),
+            coreIdle: new THREE.Color(0x202040),
+            coreProcessingStart: new THREE.Color(0x007bff), // Blue
+            coreProcessingMid: new THREE.Color(0x00ff7f), // Green
+            coreProcessingEnd: new THREE.Color(0xffff00), // Yellow
+            coreStalled: new THREE.Color(0xff0000), // Red
+            dataPacket: new THREE.Color(0xffffff),
+            dataPacketProcessed: new THREE.Color(0x00ff00), // Green after processing
+            pipelineF: new THREE.Color(0xffa500), // Orange
+            pipelineD: new THREE.Color(0x8a2be2), // BlueViolet
+            pipelineE: new THREE.Color(0x00ced1), // DarkTurquoise
+            cpuCore: new THREE.Color(0x800080), // Purple
+        };
+
+        // --- Metrics ---
+        let totalProcessedPackets = 0;
+        let totalMemoryTransferredKB = 0;
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let gflops = 0;
+        let memoryBandwidth = 0;
+
+        // --- Shaders for dynamic core coloring ---
+        const coreVertexShader = `
+            attribute vec3 instanceColor;
+            varying vec3 vColor;
+            void main() {
+                vColor = instanceColor;
+                gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        const coreFragmentShader = `
+            varying vec3 vColor;
+            void main() {
+                gl_FragColor = vec4(vColor, 1.0);
+            }
+        `;
+
+        // --- Initialization ---
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = COLORS.background;
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 15, 30);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 7);
+            scene.add(directionalLight);
+
+            // Create groups for GPU and CPU visualizations
+            gpuGroup = new THREE.Group();
+            scene.add(gpuGroup);
+            cpuGroup = new THREE.Group();
+            scene.add(cpuGroup);
+
+            // Initialize UI
+            setupUI();
+
+            // Build initial scene based on default parameters
+            buildScene();
+
+            // Handle window resizing
+            new ResizeObserver(onWindowResize).observe(document.body);
+
+            // Start animation loop
+            animate();
+        }
+
+        // --- Scene Building Functions ---
+        function buildScene() {
+            // Clear existing elements
+            gpuGroup.clear();
+            cpuGroup.clear();
+            coreStates.length = 0;
+            dataPackets.length = 0;
+            coreTransforms.length = 0;
+            coreColors.length = 0;
+            totalProcessedPackets = 0;
+            totalMemoryTransferredKB = 0;
+
+            if (SIM_PARAMS.processingMode === 'gpu') {
+                buildGPUScene();
+                gpuGroup.visible = true;
+                cpuGroup.visible = false;
+            } else {
+                buildCPUScene();
+                gpuGroup.visible = false;
+                cpuGroup.visible = true;
+            }
+        }
+
+        function buildGPUScene() {
+            // --- Memory Hierarchy ---
+            const memMaterial = new THREE.MeshStandardMaterial({ color: COLORS.vram, emissive: COLORS.vram, emissiveIntensity: 0.1 });
+            const memGeometry = new THREE.BoxGeometry(10, 1, 5);
+
+            vramMesh = new THREE.Mesh(memGeometry, memMaterial.clone());
+            vramMesh.position.set(-15, 0, 0);
+            vramMesh.name = 'VRAM';
+            gpuGroup.add(vramMesh);
+
+            l2CacheMesh = new THREE.Mesh(memGeometry.clone(), memMaterial.clone());
+            l2CacheMesh.material.color.copy(COLORS.l2Cache);
+            l2CacheMesh.material.emissive.copy(COLORS.l2Cache);
+            l2CacheMesh.position.set(-5, 0, 0);
+            l2CacheMesh.name = 'L2 Cache';
+            gpuGroup.add(l2CacheMesh);
+
+            l1CacheMesh = new THREE.Mesh(memGeometry.clone(), memMaterial.clone());
+            l1CacheMesh.material.color.copy(COLORS.l1Cache);
+            l1CacheMesh.material.emissive.copy(COLORS.l1Cache);
+            l1CacheMesh.position.set(5, 0, 0);
+            l1CacheMesh.name = 'L1 Cache';
+            gpuGroup.add(l1CacheMesh);
+
+            registersMesh = new THREE.Mesh(new THREE.BoxGeometry(5, 1, 3), memMaterial.clone());
+            registersMesh.material.color.copy(COLORS.registers);
+            registersMesh.material.emissive.copy(COLORS.registers);
+            registersMesh.position.set(12.5, 0, 0);
+            registersMesh.name = 'Registers';
+            gpuGroup.add(registersMesh);
+
+            // --- Data Pipeline Stages (Fetch, Decode, Execute) ---
+            const pipelineGeometry = new THREE.BoxGeometry(1, 0.5, 0.5);
+            const pipelineMaterialF = new THREE.MeshStandardMaterial({ color: COLORS.pipelineF, emissive: COLORS.pipelineF, emissiveIntensity: 0.1 });
+            const pipelineMaterialD = new THREE.MeshStandardMaterial({ color: COLORS.pipelineD, emissive: COLORS.pipelineD, emissiveIntensity: 0.1 });
+            const pipelineMaterialE = new THREE.MeshStandardMaterial({ color: COLORS.pipelineE, emissive: COLORS.pipelineE, emissiveIntensity: 0.1 });
+
+            pipelineF = new THREE.Mesh(pipelineGeometry, pipelineMaterialF);
+            pipelineF.position.set(16, 0.5, 0);
+            pipelineF.name = 'Fetch';
+            gpuGroup.add(pipelineF);
+
+            pipelineD = new THREE.Mesh(pipelineGeometry, pipelineMaterialD);
+            pipelineD.position.set(17.5, 0.5, 0);
+            pipelineD.name = 'Decode';
+            gpuGroup.add(pipelineD);
+
+            pipelineE = new THREE.Mesh(pipelineGeometry, pipelineMaterialE);
+            pipelineE.position.set(19, 0.5, 0);
+            pipelineE.name = 'Execute';
+            gpuGroup.add(pipelineE);
+
+            // --- Core Grid (InstancedMesh) ---
+            const coreGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+            const coreMaterial = new THREE.ShaderMaterial({
+                vertexShader: coreVertexShader,
+                fragmentShader: coreFragmentShader,
+                uniforms: {},
+                transparent: true,
+                opacity: 0.9
+            });
+
+            // Calculate grid dimensions
+            const totalCores = SIM_PARAMS.coreCount;
+            const smCount = SIM_PARAMS.smCount;
+            const coresPerSM = Math.ceil(totalCores / smCount); // Distribute cores evenly
+            SIM_PARAMS.coresPerSM = coresPerSM; // Update param for logic
+
+            const smGridX = Math.ceil(Math.sqrt(smCount));
+            const smGridY = Math.ceil(smCount / smGridX);
+
+            const coreSpacing = 1.2;
+            const smSpacing = 5; // Spacing between SM groups
+
+            let coreId = 0;
+            for (let smY = 0; smY < smGridY; smY++) {
+                for (let smX = 0; smX < smGridX; smX++) {
+                    if (coreId >= totalCores) break;
+
+                    const currentSMcores = Math.min(coresPerSM, totalCores - coreId);
+                    const smCoresGridX = Math.ceil(Math.sqrt(currentSMcores));
+                    const smCoresGridY = Math.ceil(currentSMcores / smCoresGridX);
+
+                    for (let y = 0; y < smCoresGridY; y++) {
+                        for (let x = 0; x < smCoresGridX; x++) {
+                            if (coreId >= totalCores) break;
+
+                            const matrix = new THREE.Matrix4();
+                            const position = new THREE.Vector3(
+                                smX * smSpacing + x * coreSpacing - (smGridX * smSpacing - smSpacing) / 2,
+                                y * coreSpacing - (smCoresGridY * coreSpacing - coreSpacing) / 2,
+                                0
+                            );
+                            position.x += 25; // Offset to the right of memory
+                            matrix.setPosition(position);
+                            coreTransforms.push(matrix);
+                            coreColors.push(COLORS.coreIdle.clone());
+                            coreStates.push({
+                                active: false,
+                                processingTime: 0,
+                                smId: smY * smGridX + smX,
+                                stalled: false,
+                                position: position.clone(),
+                                pipelineProgress: 0 // 0-1 for F, D, E stages
+                            });
+                            coreId++;
+                        }
+                    }
+                }
+            }
+
+            coreInstancedMesh = new THREE.InstancedMesh(coreGeometry, coreMaterial, totalCores);
+            for (let i = 0; i < totalCores; i++) {
+                coreInstancedMesh.setMatrixAt(i, coreTransforms[i]);
+                coreInstancedMesh.setColorAt(i, coreColors[i]);
+            }
+            coreInstancedMesh.instanceMatrix.needsUpdate = true;
+            coreInstancedMesh.instanceColor.needsUpdate = true;
+            gpuGroup.add(coreInstancedMesh);
+
+            // --- Data Packet InstancedMesh ---
+            const packetGeometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+            const packetMaterial = new THREE.MeshStandardMaterial({ color: COLORS.dataPacket });
+            dataPacketInstancedMesh = new THREE.InstancedMesh(packetGeometry, packetMaterial, SIM_PARAMS.maxDataPackets);
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+            dataPacketInstancedMesh.instanceColor.needsUpdate = true;
+            gpuGroup.add(dataPacketInstancedMesh);
+
+            // Hide all packets initially
+            for (let i = 0; i < SIM_PARAMS.maxDataPackets; i++) {
+                const matrix = new THREE.Matrix4().makeScale(0, 0, 0); // Scale to zero to hide
+                dataPacketInstancedMesh.setMatrixAt(i, matrix);
+            }
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+        }
+
+        function buildCPUScene() {
+            // --- Single CPU Core ---
+            const cpuCoreGeometry = new THREE.BoxGeometry(5, 3, 3);
+            const cpuCoreMaterial = new THREE.MeshStandardMaterial({ color: COLORS.cpuCore, emissive: COLORS.cpuCore, emissiveIntensity: 0.1 });
+            cpuCoreMesh = new THREE.Mesh(cpuCoreGeometry, cpuCoreMaterial);
+            cpuCoreMesh.position.set(0, 0, 0);
+            cpuCoreMesh.name = 'CPU Core';
+            cpuGroup.add(cpuCoreMesh);
+
+            // --- CPU Data Packet InstancedMesh ---
+            const packetGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const packetMaterial = new THREE.MeshStandardMaterial({ color: COLORS.dataPacket });
+            dataPacketInstancedMesh = new THREE.InstancedMesh(packetGeometry, packetMaterial, SIM_PARAMS.maxCPUPackets);
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+            dataPacketInstancedMesh.instanceColor.needsUpdate = true;
+            cpuGroup.add(dataPacketInstancedMesh);
+
+            // Hide all packets initially
+            for (let i = 0; i < SIM_PARAMS.maxCPUPackets; i++) {
+                const matrix = new THREE.Matrix4().makeScale(0, 0, 0); // Scale to zero to hide
+                dataPacketInstancedMesh.setMatrixAt(i, matrix);
+            }
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+
+            // Initialize CPU core state
+            coreStates.push({
+                active: false,
+                processingTime: 0,
+                smId: 0, // Not applicable for CPU, but keep structure
+                stalled: false,
+                position: cpuCoreMesh.position.clone(),
+                pipelineProgress: 0
+            });
+        }
+
+        // --- Animation Loop ---
+        function animate(time) {
+            requestAnimationFrame(animate);
+
+            if (!SIM_PARAMS.paused) {
+                const deltaTime = (time - lastFrameTime) / 1000 || 0; // in seconds
+                lastFrameTime = time;
+                frameCount++;
+
+                if (SIM_PARAMS.processingMode === 'gpu') {
+                    updateGPUSimulation(deltaTime);
+                } else {
+                    updateCPUSimulation(deltaTime);
+                }
+                updateMetrics(deltaTime);
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- GPU Simulation Logic ---
+        function updateGPUSimulation(deltaTime) {
+            const totalCores = SIM_PARAMS.coreCount;
+            const coresPerSM = SIM_PARAMS.coresPerSM;
+            const smCount = SIM_PARAMS.smCount;
+            const activeDataPackets = dataPackets.filter(p => p.state !== 'completed' && p.state !== 'idle').length;
+
+            // --- Data Packet Generation (from VRAM) ---
+            if (activeDataPackets < SIM_PARAMS.maxDataPackets) {
+                for (let i = 0; i < smCount; i++) {
+                    if (Math.random() < SIM_PARAMS.packetGenerationRate * SIM_PARAMS.animationSpeed) {
+                        const availableCores = coreStates.filter(c => !c.active && c.smId === i && !c.stalled);
+                        if (availableCores.length > 0) {
+                            const targetCore = availableCores[Math.floor(Math.random() * availableCores.length)];
+                            const packetId = dataPackets.length;
+                            dataPackets.push({
+                                instanceId: packetId,
+                                state: 'originating', // originating -> traveling_L2 -> traveling_L1 -> traveling_registers -> traveling_F -> traveling_D -> traveling_E -> processing_core -> completed
+                                targetCoreId: coreStates.indexOf(targetCore),
+                                progress: 0, // 0-1 for each stage
+                                startTime: performance.now(),
+                                currentPosition: vramMesh.position.clone(),
+                                targetPosition: vramMesh.position.clone(),
+                                color: COLORS.dataPacket.clone()
+                            });
+                            totalMemoryTransferredKB += SIM_PARAMS.dataPacketSizeKB;
+                        }
+                    }
+                }
+            }
+
+            // --- Update Core States and Colors ---
+            for (let i = 0; i < totalCores; i++) {
+                const core = coreStates[i];
+                const corePos = core.position;
+
+                // Branch Divergence: Randomly stall cores
+                if (Math.random() < SIM_PARAMS.branchDivergenceChance * SIM_PARAMS.animationSpeed && core.active) {
+                    core.stalled = true;
+                    core.processingTime = 0; // Reset processing time
+                }
+
+                if (core.stalled) {
+                    coreColors[i].copy(COLORS.coreStalled);
+                    // Gradually recover from stall
+                    core.processingTime += SIM_PARAMS.animationSpeed;
+                    if (core.processingTime > SIM_PARAMS.coreProcessingTime * 2) { // Stall for twice the normal processing time
+                        core.stalled = false;
+                        core.active = false; // Core becomes idle after stall
+                        core.processingTime = 0;
+                    }
+                } else if (core.active) {
+                    core.processingTime += SIM_PARAMS.animationSpeed;
+                    const progress = core.processingTime / SIM_PARAMS.coreProcessingTime;
+
+                    // Core Occupancy: Color gradient
+                    if (progress < 0.5) {
+                        coreColors[i].lerpColors(COLORS.coreProcessingStart, COLORS.coreProcessingMid, progress * 2);
+                    } else {
+                        coreColors[i].lerpColors(COLORS.coreProcessingMid, COLORS.coreProcessingEnd, (progress - 0.5) * 2);
+                    }
+
+                    if (core.processingTime >= SIM_PARAMS.coreProcessingTime) {
+                        core.active = false;
+                        core.processingTime = 0;
+                        core.pipelineProgress = 0;
+                        coreColors[i].copy(COLORS.coreIdle);
+                        totalProcessedPackets++;
+                    }
+                } else {
+                    coreColors[i].copy(COLORS.coreIdle);
+                }
+
+                coreInstancedMesh.setColorAt(i, coreColors[i]);
+            }
+            coreInstancedMesh.instanceColor.needsUpdate = true;
+
+            // --- Update Data Packet Positions and States ---
+            const tempMatrix = new THREE.Matrix4();
+            const tempColor = new THREE.Color();
+            const packetSpeed = SIM_PARAMS.packetTravelSpeed * SIM_PARAMS.animationSpeed;
+
+            // Reset memory heatmap emissive intensity
+            vramMesh.material.emissiveIntensity = 0.1;
+            l2CacheMesh.material.emissiveIntensity = 0.1;
+            l1CacheMesh.material.emissiveIntensity = 0.1;
+            registersMesh.material.emissiveIntensity = 0.1;
+            pipelineF.material.emissiveIntensity = 0.1;
+            pipelineD.material.emissiveIntensity = 0.1;
+            pipelineE.material.emissiveIntensity = 0.1;
+
+            for (let i = 0; i < dataPackets.length; i++) {
+                const packet = dataPackets[i];
+                const targetCore = coreStates[packet.targetCoreId];
+                const targetCorePos = targetCore ? targetCore.position : new THREE.Vector3();
+
+                let currentTargetPos;
+                let nextState;
+                let currentMesh; // For memory heatmap
+
+                switch (packet.state) {
+                    case 'originating':
+                        currentTargetPos = l2CacheMesh.position;
+                        nextState = 'traveling_L2';
+                        currentMesh = vramMesh;
+                        break;
+                    case 'traveling_L2':
+                        currentTargetPos = l1CacheMesh.position;
+                        nextState = 'traveling_L1';
+                        currentMesh = l2CacheMesh;
+                        break;
+                    case 'traveling_L1':
+                        currentTargetPos = registersMesh.position;
+                        nextState = 'traveling_registers';
+                        currentMesh = l1CacheMesh;
+                        break;
+                    case 'traveling_registers':
+                        currentTargetPos = pipelineF.position;
+                        nextState = 'traveling_F';
+                        currentMesh = registersMesh;
+                        break;
+                    case 'traveling_F':
+                        currentTargetPos = pipelineD.position;
+                        nextState = 'traveling_D';
+                        currentMesh = pipelineF;
+                        break;
+                    case 'traveling_D':
+                        currentTargetPos = pipelineE.position;
+                        nextState = 'traveling_E';
+                        currentMesh = pipelineD;
+                        break;
+                    case 'traveling_E':
+                        currentTargetPos = targetCorePos;
+                        nextState = 'processing_core';
+                        currentMesh = pipelineE;
+                        break;
+                    case 'processing_core':
+                        // Packet is "inside" the core, hide it
+                        tempMatrix.makeScale(0, 0, 0);
+                        dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                        dataPacketInstancedMesh.setColorAt(packet.instanceId, tempColor.copy(packet.color));
+
+                        if (!targetCore.active && !targetCore.stalled) {
+                            targetCore.active = true;
+                            targetCore.processingTime = 0;
+                        }
+                        // Packet remains hidden until core finishes
+                        if (!targetCore.active && !targetCore.stalled) { // Core finished processing
+                            packet.state = 'completed';
+                            packet.color.copy(COLORS.dataPacketProcessed);
+                        }
+                        continue; // Don't update position for processing packets
+                    case 'completed':
+                        // Hide completed packets
+                        tempMatrix.makeScale(0, 0, 0);
+                        dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                        dataPacketInstancedMesh.setColorAt(packet.instanceId, tempColor.copy(packet.color));
+                        continue;
+                    default:
+                        continue;
+                }
+
+                // Memory Heatmap: Increase emissive intensity as data passes
+                if (currentMesh) {
+                    currentMesh.material.emissiveIntensity = 0.5 + Math.sin(performance.now() * 0.01) * 0.2; // Pulsing effect
+                }
+
+                packet.progress += packetSpeed;
+                if (packet.progress >= 1) {
+                    packet.progress = 0;
+                    packet.state = nextState;
+                    packet.currentPosition.copy(currentTargetPos);
+                } else {
+                    packet.currentPosition.lerpVectors(packet.currentPosition, currentTargetPos, packet.progress);
+                }
+
+                tempMatrix.setPosition(packet.currentPosition);
+                dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                dataPacketInstancedMesh.setColorAt(packet.instanceId, tempColor.copy(packet.color));
+            }
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+            dataPacketInstancedMesh.instanceColor.needsUpdate = true;
+        }
+
+        // --- CPU Simulation Logic ---
+        function updateCPUSimulation(deltaTime) {
+            const cpuCore = coreStates[0]; // There's only one CPU core in coreStates
+            const activeDataPackets = dataPackets.filter(p => p.state !== 'completed' && p.state !== 'idle').length;
+
+            // --- Data Packet Generation ---
+            if (activeDataPackets < SIM_PARAMS.maxCPUPackets && !cpuCore.active) { // Only generate if CPU is idle
+                if (Math.random() < SIM_PARAMS.packetGenerationRate * SIM_PARAMS.animationSpeed * 0.5) { // Slower generation for CPU
+                    const packetId = dataPackets.length;
+                    dataPackets.push({
+                        instanceId: packetId,
+                        state: 'originating',
+                        targetCoreId: 0, // Always target the single CPU core
+                        progress: 0,
+                        startTime: performance.now(),
+                        currentPosition: new THREE.Vector3(-10, 0, 0), // Origin for CPU packets
+                        targetPosition: cpuCoreMesh.position.clone(),
+                        color: COLORS.dataPacket.clone()
+                    });
+                    totalMemoryTransferredKB += SIM_PARAMS.dataPacketSizeKB;
+                }
+            }
+
+            // --- Update CPU Core State ---
+            if (cpuCore.active) {
+                cpuCore.processingTime += SIM_PARAMS.animationSpeed;
+                const progress = cpuCore.processingTime / (SIM_PARAMS.coreProcessingTime / 5); // CPU processes faster individually
+                cpuCoreMesh.material.emissiveIntensity = 0.5 + Math.sin(progress * Math.PI * 2) * 0.4; // Pulsing effect
+
+                if (cpuCore.processingTime >= (SIM_PARAMS.coreProcessingTime / 5)) {
+                    cpuCore.active = false;
+                    cpuCore.processingTime = 0;
+                    cpuCoreMesh.material.emissiveIntensity = 0.1;
+                    totalProcessedPackets++;
+                }
+            } else {
+                cpuCoreMesh.material.emissiveIntensity = 0.1;
+            }
+
+            // --- Update Data Packet Positions and States for CPU ---
+            const tempMatrix = new THREE.Matrix4();
+            const tempColor = new THREE.Color();
+            const packetSpeed = SIM_PARAMS.packetTravelSpeed * SIM_PARAMS.animationSpeed * 2; // CPU packets move faster
+
+            for (let i = 0; i < dataPackets.length; i++) {
+                const packet = dataPackets[i];
+                const targetCorePos = cpuCoreMesh.position;
+
+                if (packet.state === 'originating') {
+                    packet.progress += packetSpeed;
+                    packet.currentPosition.lerpVectors(packet.currentPosition, targetCorePos, packet.progress);
+
+                    if (packet.progress >= 1) {
+                        packet.progress = 0;
+                        packet.state = 'processing_core';
+                        packet.currentPosition.copy(targetCorePos);
+                    }
+                } else if (packet.state === 'processing_core') {
+                    tempMatrix.makeScale(0, 0, 0); // Hide packet inside CPU
+                    dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                    dataPacketInstancedMesh.setColorAt(packet.instanceId, tempColor.copy(packet.color));
+
+                    if (!cpuCore.active) {
+                        cpuCore.active = true;
+                        cpuCore.processingTime = 0;
+                    }
+                    if (!cpuCore.active) { // Core finished processing
+                        packet.state = 'completed';
+                        packet.color.copy(COLORS.dataPacketProcessed);
+                    }
+                    continue;
+                } else if (packet.state === 'completed') {
+                    tempMatrix.makeScale(0, 0, 0); // Hide completed packets
+                    dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                    dataPacketInstancedMesh.setColorAt(packet.instanceId, tempColor.copy(packet.color));
+                    continue;
+                }
+
+                tempMatrix.setPosition(packet.currentPosition);
+                dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                dataPacketInstancedMesh.setColorAt(packet.instanceId, tempColor.copy(packet.color));
+            }
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+            dataPacketInstancedMesh.instanceColor.needsUpdate = true;
+        }
+
+        // --- Metrics Calculation ---
+        function updateMetrics(deltaTime) {
+            // GFLOPS calculation:
+            // Assuming 1 FLOP per core per clock cycle for simplicity.
+            // GFLOPS = (Cores * Clock Speed (Hz)) / 1,000,000,000
+            // In our simulation, a core processes a packet in SIM_PARAMS.coreProcessingTime frames.
+            // Let's define 1 packet processing as equivalent to a certain number of FLOPs.
+            // For simplicity, let's say 1 packet = 1000 FLOPs.
+            // Then, FLOPs per core per second = (1000 FLOPs / (SIM_PARAMS.coreProcessingTime / 60 frames/sec))
+            // GFLOPS = (Active Cores * (1000 FLOPs / (SIM_PARAMS.coreProcessingTime / 60))) / 1e9
+            // This is a simplified model. A real GPU has multiple ALUs per core.
+
+            let currentGFLOPS = 0;
+            let activeCores = 0;
+            if (SIM_PARAMS.processingMode === 'gpu') {
+                activeCores = coreStates.filter(c => c.active && !c.stalled).length;
+                // Simplified GFLOPS: (active cores * clock speed * (some ops per cycle)) / 1e9
+                // Let's assume each core can do 4 FLOPs per clock cycle (e.g., FMA unit)
+                // And our 'processingTime' represents a certain number of cycles.
+                // A more direct approach: GFLOPS = (packets processed per second * FLOPs per packet) / 1e9
+                // Let's assume 1 packet processing is 1000 FLOPs for a simplified visualization.
+                const packetsPerSecondPerCore = (60 / SIM_PARAMS.coreProcessingTime) * SIM_PARAMS.animationSpeed; // Assuming 60 FPS
+                currentGFLOPS = (activeCores * packetsPerSecondPerCore * 1000) / 1e9;
+            } else { // CPU mode
+                activeCores = coreStates.filter(c => c.active).length;
+                const packetsPerSecondPerCore = (60 / (SIM_PARAMS.coreProcessingTime / 5)) * SIM_PARAMS.animationSpeed; // CPU processes faster
+                currentGFLOPS = (activeCores * packetsPerSecondPerCore * 1000) / 1e9;
+            }
+
+            gflops = currentGFLOPS * SIM_PARAMS.clockSpeedGHz; // Scale by clock speed
+
+            // Memory Bandwidth calculation:
+            // Memory Bandwidth = (Data transferred per second) / 1,000,000,000 (for GB/s)
+            // We track totalMemoryTransferredKB.
+            // To get per second, we need to know how much was transferred in the last second.
+            // For simplicity, let's estimate based on packet generation rate.
+            const packetsGeneratedPerSecond = (SIM_PARAMS.processingMode === 'gpu' ? SIM_PARAMS.smCount : 1) * SIM_PARAMS.packetGenerationRate * 60 * SIM_PARAMS.animationSpeed;
+            memoryBandwidth = (packetsGeneratedPerSecond * SIM_PARAMS.dataPacketSizeKB) / 1024 / 1024; // KB to GB
+
+            document.getElementById('gflopsValue').textContent = gflops.toFixed(2);
+            document.getElementById('memoryBandwidthValue').textContent = memoryBandwidth.toFixed(2);
+        }
+
+        // --- UI Setup and Event Handlers ---
+        function setupUI() {
+            const coreCountSlider = document.getElementById('coreCount');
+            const coreCountValue = document.getElementById('coreCountValue');
+            const clockSpeedSlider = document.getElementById('clockSpeed');
+            const clockSpeedValue = document.getElementById('clockSpeedValue');
+            const processingModeSelect = document.getElementById('processingMode');
+            const computeModeSelect = document.getElementById('computeMode');
+            const playPauseBtn = document.getElementById('playPauseBtn');
+            const resetBtn = document.getElementById('resetBtn');
+
+            coreCountSlider.value = SIM_PARAMS.coreCount;
+            coreCountValue.textContent = SIM_PARAMS.coreCount;
+            clockSpeedSlider.value = SIM_PARAMS.clockSpeedGHz;
+            clockSpeedValue.textContent = SIM_PARAMS.clockSpeedGHz;
+            processingModeSelect.value = SIM_PARAMS.processingMode;
+            computeModeSelect.value = SIM_PARAMS.computeMode;
+
+            coreCountSlider.oninput = (e) => {
+                SIM_PARAMS.coreCount = parseInt(e.target.value);
+                coreCountValue.textContent = SIM_PARAMS.coreCount;
+                if (SIM_PARAMS.processingMode === 'gpu') buildScene(); // Rebuild GPU scene
+            };
+
+            clockSpeedSlider.oninput = (e) => {
+                SIM_PARAMS.clockSpeedGHz = parseFloat(e.target.value);
+                clockSpeedValue.textContent = SIM_PARAMS.clockSpeedGHz;
+            };
+
+            processingModeSelect.onchange = (e) => {
+                SIM_PARAMS.processingMode = e.target.value;
+                buildScene();
+                // Disable core count slider for CPU mode
+                coreCountSlider.disabled = (SIM_PARAMS.processingMode === 'cpu');
+                if (SIM_PARAMS.processingMode === 'cpu') {
+                    coreCountValue.textContent = 'N/A';
+                } else {
+                    coreCountValue.textContent = SIM_PARAMS.coreCount;
+                }
+            };
+
+            computeModeSelect.onchange = (e) => {
+                SIM_PARAMS.computeMode = e.target.value;
+                // This could visually change packet color or core animation slightly
+                // For now, it's just a label, but could be expanded.
+            };
+
+            playPauseBtn.onclick = () => {
+                SIM_PARAMS.paused = !SIM_PARAMS.paused;
+                playPauseBtn.textContent = SIM_PARAMS.paused ? 'Play' : 'Pause';
+            };
+
+            resetBtn.onclick = () => {
+                // Reset all parameters to initial defaults
+                SIM_PARAMS.processingMode = 'gpu';
+                SIM_PARAMS.coreCount = 256;
+                SIM_PARAMS.clockSpeedGHz = 1.5;
+                SIM_PARAMS.computeMode = 'graphics';
+                SIM_PARAMS.animationSpeed = 1.0;
+                SIM_PARAMS.paused = false;
+
+                coreCountSlider.value = SIM_PARAMS.coreCount;
+                coreCountValue.textContent = SIM_PARAMS.coreCount;
+                clockSpeedSlider.value = SIM_PARAMS.clockSpeedGHz;
+                clockSpeedValue.textContent = SIM_PARAMS.clockSpeedGHz;
+                processingModeSelect.value = SIM_PARAMS.processingMode;
+                computeModeSelect.value = SIM_PARAMS.computeMode;
+                playPauseBtn.textContent = 'Pause';
+                coreCountSlider.disabled = false; // Enable for GPU mode
+
+                buildScene();
+            };
+
+            // Initial state for core count slider based on processing mode
+            coreCountSlider.disabled = (SIM_PARAMS.processingMode === 'cpu');
+        }
+
+        // --- Window Resize Handler ---
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Start the simulation ---
+        init();
+    </script>
+</body>
+</html> -->
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar System Dynamics - AI Visual Educator</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #000; color: #fff; }
+        #info-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 15px;
+            box-sizing: border-box;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 100%);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-start;
+            z-index: 100;
+            pointer-events: none; /* Allow clicks to pass through by default */
+        }
+        #info-overlay > div {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            pointer-events: auto; /* Re-enable pointer events for controls */
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .control-group label {
+            font-size: 0.9em;
+            color: #ccc;
+            margin-bottom: 2px;
+        }
+        .control-group input[type="range"] {
+            width: 150px;
+            -webkit-appearance: none;
+            height: 4px;
+            background: #555;
+            outline: none;
+            border-radius: 2px;
+        }
+        .control-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+            box-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+        .control-group button, .control-group select {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: background-color 0.2s ease;
+        }
+        .control-group button:hover, .control-group select:hover {
+            background-color: #0056b3;
+        }
+        .control-group button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+        #dynamic-labels {
+            min-width: 200px;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+        #dynamic-labels span {
+            display: block;
+            margin-bottom: 5px;
+        }
+        #planet-info {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 0.85em;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            white-space: nowrap;
+            z-index: 101;
+        }
+        #planet-info.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="info-overlay">
+        <div class="control-group">
+            <label for="speedSlider">Simulation Speed:</label>
+            <input type="range" id="speedSlider" min="0.1" max="100" value="1" step="0.1">
+            <label for="planetSizeSlider">Planet Visual Size:</label>
+            <input type="range" id="planetSizeSlider" min="1" max="500" value="50" step="1">
+        </div>
+        <div class="control-group">
+            <label for="viewModeSelect">View Mode:</label>
+            <select id="viewModeSelect">
+                <option value="realistic">Realistic View</option>
+                <option value="schematic">Schematic View</option>
+            </select>
+            <button id="togglePlayPause">Pause</button>
+            <button id="resetButton">Reset</button>
+        </div>
+        <div class="control-group">
+            <button id="scaleComparisonButton">Scale Comparison Mode</button>
+        </div>
+        <div id="dynamic-labels">
+            <span id="simulationDate">Date: J2000.0</span>
+            <span id="selectedPlanetInfo">Hover over a planet for details.</span>
+        </div>
+    </div>
+    <div id="planet-info"></div>
+
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+        import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // --- Global Simulation Parameters ---
+        const AU = 149.6e6; // 1 Astronomical Unit in km
+        const KM_PER_UNIT = AU / 100; // Scale factor: 1 Three.js unit = 1/100 AU (1.496e6 km)
+        const SUN_RADIUS_KM = 695700; // Sun radius in km
+        const GRAVITATIONAL_CONSTANT = 6.67430e-11; // m^3 kg^-1 s^-2
+        const SUN_MASS_KG = 1.989e30; // Sun mass in kg
+
+        let simulationSpeed = 1.0; // Multiplier for time progression
+        let planetSizeMultiplier = 50; // Visual multiplier for planet radii
+        let isPaused = false;
+        let timeElapsed = 0; // In Earth days
+        let viewMode = 'realistic'; // 'realistic' or 'schematic'
+        let scaleComparisonMode = false;
+
+        // --- Lights ---
+        const ambientLight = new THREE.AmbientLight(0x333333);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.PointLight(0xffffff, 1.5, 0, 0); // Color, intensity, distance, decay
+        scene.add(sunLight);
+
+        // --- Solar System Data (Simplified Keplerian Elements) ---
+        // Radii are relative to Earth's radius for visual consistency.
+        // Distances (semi-major axis 'a') are in AU.
+        // Orbital periods are in Earth days.
+        const solarSystemData = [
+            { name: "Sun", radiusKm: SUN_RADIUS_KM, color: 0xffdd00, texture: null, massKg: SUN_MASS_KG },
+            { name: "Mercury", radiusKm: 2439.7, color: 0xaaaaaa, distanceAU: 0.387, orbitalPeriodDays: 87.97, eccentricity: 0.2056, inclinationDeg: 7.00 },
+            { name: "Venus", radiusKm: 6051.8, color: 0xe0c060, distanceAU: 0.723, orbitalPeriodDays: 224.70, eccentricity: 0.0068, inclinationDeg: 3.39 },
+            { name: "Earth", radiusKm: 6371, color: 0x0077ff, distanceAU: 1.000, orbitalPeriodDays: 365.25, eccentricity: 0.0167, inclinationDeg: 0.00 },
+            { name: "Mars", radiusKm: 3389.5, color: 0xff4400, distanceAU: 1.524, orbitalPeriodDays: 686.98, eccentricity: 0.0934, inclinationDeg: 1.85 },
+            { name: "Jupiter", radiusKm: 69911, color: 0xffa060, distanceAU: 5.203, orbitalPeriodDays: 4332.59, eccentricity: 0.0484, inclinationDeg: 1.31 },
+            { name: "Saturn", radiusKm: 58232, color: 0xffd700, distanceAU: 9.537, orbitalPeriodDays: 10759.22, eccentricity: 0.0542, inclinationDeg: 2.48 },
+            { name: "Uranus", radiusKm: 25362, color: 0x87ceeb, distanceAU: 19.191, orbitalPeriodDays: 30687.15, eccentricity: 0.0472, inclinationDeg: 0.77 },
+            { name: "Neptune", radiusKm: 24622, color: 0x4169e1, distanceAU: 30.069, orbitalPeriodDays: 60190.03, eccentricity: 0.0086, inclinationDeg: 1.77 }
+        ];
+
+        const planets = []; // Array to hold Three.js planet objects
+        const orbitalPaths = []; // Array to hold orbital path lines
+
+        // --- Habitable Zone ---
+        const HABITABLE_ZONE_INNER_AU = 0.95; // Inner edge of Sun's habitable zone
+        const HABITABLE_ZONE_OUTER_AU = 1.68; // Outer edge of Sun's habitable zone
+
+        // --- Raycasting for Interaction ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let selectedPlanet = null;
+        let hoverPlanet = null;
+        const planetInfoDiv = document.getElementById('planet-info');
+
+        // --- Helper Functions ---
+
+        // Converts AU to Three.js units
+        function auToUnits(au) {
+            return au * AU / KM_PER_UNIT;
+        }
+
+        // Converts km to Three.js units (for radii)
+        function kmToUnits(km) {
+            return km / KM_PER_UNIT;
+        }
+
+        // Calculates the position of a planet at a given time (t) based on simplified Keplerian elements.
+        // This function implements Kepler's Laws for elliptical orbits.
+        function calculatePlanetPosition(planetData, t_days, scaleFactor = 1.0) {
+            const a = auToUnits(planetData.distanceAU) * scaleFactor; // Semi-major axis in Three.js units
+            const e = planetData.eccentricity || 0; // Eccentricity (0 for perfect circle)
+            const orbitalPeriodSeconds = planetData.orbitalPeriodDays * 24 * 60 * 60; // Period in seconds
+            const t_seconds = t_days * 24 * 60 * 60; // Current time in seconds
+
+            // Mean Anomaly (M): Angle from periapsis that a hypothetical body would have if it moved in a circle with the same period.
+            // M = n * t, where n is the mean motion (angular speed)
+            const meanMotion = (2 * Math.PI) / orbitalPeriodSeconds; // radians per second
+            let M = meanMotion * t_seconds;
+            M = M % (2 * Math.PI); // Keep M within [0, 2*PI]
+
+            // Solve Kepler's Equation for Eccentric Anomaly (E): M = E - e * sin(E)
+            // This is an iterative approximation (Newton-Raphson method).
+            // For performance, this is the most "expensive" part of the orbital calculation for ellipses.
+            let E = M; // Initial guess for E
+            let deltaE = 1;
+            const tolerance = 1e-6; // Convergence tolerance
+            let iterations = 0;
+            const maxIterations = 10; // Limit iterations to prevent infinite loops
+
+            while (Math.abs(deltaE) > tolerance && iterations < maxIterations) {
+                deltaE = (M - E + e * Math.sin(E)) / (1 - e * Math.cos(E));
+                E += deltaE;
+                iterations++;
+            }
+
+            // Calculate True Anomaly (nu): The actual angle of the planet from periapsis.
+            const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
+
+            // Calculate heliocentric distance (r): Distance from the Sun to the planet.
+            const r = a * (1 - e * Math.cos(E));
+
+            // Convert polar coordinates (r, nu) to Cartesian (x, y)
+            // Assuming orbits are in the XY plane for simplicity, ignoring inclination for now.
+            const x = r * Math.cos(nu);
+            const y = r * Math.sin(nu);
+            const z = 0; // For a flat 2D orbit
+
+            return new THREE.Vector3(x, y, z);
+        }
+
+        // Calculate orbital velocity using the vis-viva equation
+        function calculateOrbitalVelocity(planetData, currentDistance_km) {
+            const G = GRAVITATIONAL_CONSTANT;
+            const M_sun = SUN_MASS_KG;
+            const a_meters = planetData.distanceAU * AU * 1000; // Semi-major axis in meters
+            const r_meters = currentDistance_km * 1000; // Current distance in meters
+
+            // Vis-viva equation: v = sqrt(GM * (2/r - 1/a))
+            const velocity_mps = Math.sqrt(G * M_sun * (2 / r_meters - 1 / a_meters));
+            return velocity_mps / 1000; // Convert to km/s
+        }
+
+        // --- Initialization ---
+        function initSolarSystem() {
+            // Sun
+            const sunGeometry = new THREE.SphereGeometry(kmToUnits(solarSystemData[0].radiusKm), 64, 64);
+            const sunMaterial = new THREE.MeshBasicMaterial({ emissive: solarSystemData[0].color });
+            const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+            sun.position.set(0, 0, 0);
+            sun.name = "Sun";
+            scene.add(sun);
+            sunLight.position.copy(sun.position);
+
+            // Planets
+            for (let i = 1; i < solarSystemData.length; i++) {
+                const data = solarSystemData[i];
+                const radius = kmToUnits(data.radiusKm);
+                const geometry = new THREE.SphereGeometry(radius, 32, 32);
+                const material = new THREE.MeshStandardMaterial({ color: data.color });
+                const planet = new THREE.Mesh(geometry, material);
+                planet.name = data.name;
+                planet.userData = { ...data, originalRadius: radius }; // Store original radius and data
+                planets.push(planet);
+                scene.add(planet);
+
+                // Orbital Path
+                const pathPoints = [];
+                const numSegments = 128;
+                const a_path = auToUnits(data.distanceAU);
+                const e_path = data.eccentricity || 0;
+
+                for (let j = 0; j <= numSegments; j++) {
+                    const E_path = (j / numSegments) * 2 * Math.PI; // Eccentric anomaly from 0 to 2PI
+                    const nu_path = 2 * Math.atan2(Math.sqrt(1 + e_path) * Math.sin(E_path / 2), Math.sqrt(1 - e_path) * Math.cos(E_path / 2));
+                    const r_path = a_path * (1 - e_path * Math.cos(E_path));
+                    pathPoints.push(new THREE.Vector3(r_path * Math.cos(nu_path), r_path * Math.sin(nu_path), 0));
+                }
+                const pathGeometry = new THREE.BufferGeometry().setFromPoints(pathPoints);
+                const pathMaterial = new THREE.LineBasicMaterial({ color: 0x333333 });
+                const orbitPath = new THREE.LineLoop(pathGeometry, pathMaterial);
+                orbitPath.name = `${data.name} Orbit`;
+                orbitPath.userData.originalScale = a_path; // Store original scale for path
+                orbitalPaths.push(orbitPath);
+                scene.add(orbitPath);
+            }
+
+            // Habitable Zone
+            const hzInnerRadius = auToUnits(HABITABLE_ZONE_INNER_AU);
+            const hzOuterRadius = auToUnits(HABITABLE_ZONE_OUTER_AU);
+            const hzGeometry = new THREE.RingGeometry(hzInnerRadius, hzOuterRadius, 64);
+            const hzMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide, transparent: true, opacity: 0.1 });
+            const habitableZone = new THREE.Mesh(hzGeometry, hzMaterial);
+            habitableZone.rotation.x = Math.PI / 2; // Rotate to lie flat on XY plane
+            habitableZone.name = "Habitable Zone";
+            scene.add(habitableZone);
+
+            // Initial camera position
+            camera.position.set(0, auToUnits(10), auToUnits(10));
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+
+        // --- Update Functions ---
+        const clock = new THREE.Clock();
+        let lastFrameTime = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const deltaTime = clock.getDelta(); // Time since last frame in seconds
+
+            if (!isPaused && !scaleComparisonMode) {
+                timeElapsed += deltaTime * simulationSpeed; // Advance simulation time in days
+            }
+
+            updateSolarSystem();
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function updateSolarSystem() {
+            const sunMesh = scene.getObjectByName("Sun");
+            if (sunMesh) {
+                // Update sun visual size if needed (though it's usually fixed as a light source)
+                sunMesh.scale.setScalar(planetSizeMultiplier);
+            }
+
+            let distanceScale = 1.0;
+            if (viewMode === 'schematic') {
+                // Apply a non-linear compression for schematic view to make outer planets more visible
+                // Example: sqrt(distance) or log(distance)
+                distanceScale = (au) => Math.sqrt(au) / Math.sqrt(solarSystemData[solarSystemData.length - 1].distanceAU);
+            } else {
+                distanceScale = (au) => 1.0; // No distance scaling for realistic view
+            }
+
+            planets.forEach(planet => {
+                const data = planet.userData;
+                let currentPos;
+
+                if (scaleComparisonMode) {
+                    // In scale comparison mode, just place them in a line or circle for size comparison
+                    const baseRadius = auToUnits(2); // A fixed distance from the sun for comparison
+                    const angleOffset = planets.indexOf(planet) * (Math.PI / (planets.length - 1));
+                    currentPos = new THREE.Vector3(baseRadius * Math.cos(angleOffset), baseRadius * Math.sin(angleOffset), 0);
+                    planet.scale.setScalar(planetSizeMultiplier * 10); // Make them larger for comparison
+                } else {
+                    // Calculate position based on view mode and time
+                    const effectiveDistanceScale = (viewMode === 'schematic') ? distanceScale(data.distanceAU) : 1.0;
+                    currentPos = calculatePlanetPosition(data, timeElapsed, effectiveDistanceScale);
+                    planet.scale.setScalar(planetSizeMultiplier); // Apply visual size multiplier
+                }
+                planet.position.copy(currentPos);
+
+                // Update orbital path visibility and scaling
+                const orbitPath = orbitalPaths.find(p => p.name === `${data.name} Orbit`);
+                if (orbitPath) {
+                    if (scaleComparisonMode) {
+                        orbitPath.visible = false; // Hide paths in comparison mode
+                    } else {
+                        orbitPath.visible = true;
+                        // Re-scale path if view mode changes
+                        const pathScale = (viewMode === 'schematic') ? distanceScale(data.distanceAU) : 1.0;
+                        orbitPath.scale.setScalar(pathScale);
+                    }
+                }
+
+                // Update vector arrows if this planet is selected
+                if (selectedPlanet === planet) {
+                    updateVectorArrows(planet);
+                }
+            });
+
+            // Update UI labels
+            updateUILabels();
+        }
+
+        // --- Vector Arrows ---
+        let gravityArrow, velocityArrow;
+
+        function createVectorArrows() {
+            const arrowLength = auToUnits(0.5); // Length of the arrows
+            const arrowColorGravity = 0xff0000; // Red for gravity
+            const arrowColorVelocity = 0x00ff00; // Green for velocity
+
+            gravityArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), arrowLength, arrowColorGravity, arrowLength * 0.2, arrowLength * 0.1);
+            velocityArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), arrowLength, arrowColorVelocity, arrowLength * 0.2, arrowLength * 0.1);
+
+            gravityArrow.visible = false;
+            velocityArrow.visible = false;
+
+            scene.add(gravityArrow);
+            scene.add(velocityArrow);
+        }
+
+        function updateVectorArrows(planet) {
+            if (!planet || scaleComparisonMode) {
+                gravityArrow.visible = false;
+                velocityArrow.visible = false;
+                return;
+            }
+
+            const planetPos = planet.position;
+            const sunPos = new THREE.Vector3(0, 0, 0);
+
+            // Gravity vector (points from planet to sun)
+            const gravityDirection = new THREE.Vector3().subVectors(sunPos, planetPos).normalize();
+            gravityArrow.position.copy(planetPos);
+            gravityArrow.setDirection(gravityDirection);
+            gravityArrow.visible = true;
+
+            // Velocity vector (tangential to orbit)
+            // To get velocity direction, we need to know the next position or use the derivative of the position function.
+            // For simplicity, we can approximate by getting the position slightly ahead in time.
+            const smallDeltaT = 0.01; // A very small time step
+            const nextPos = calculatePlanetPosition(planet.userData, timeElapsed + smallDeltaT, (viewMode === 'schematic') ? (au) => Math.sqrt(au) / Math.sqrt(solarSystemData[solarSystemData.length - 1].distanceAU) : (au) => 1.0);
+            const velocityDirection = new THREE.Vector3().subVectors(nextPos, planetPos).normalize();
+            velocityArrow.position.copy(planetPos);
+            velocityArrow.setDirection(velocityDirection);
+            velocityArrow.visible = true;
+        }
+
+        function hideVectorArrows() {
+            if (gravityArrow) gravityArrow.visible = false;
+            if (velocityArrow) velocityArrow.visible = false;
+        }
+
+        // --- UI & Interaction ---
+        const speedSlider = document.getElementById('speedSlider');
+        const planetSizeSlider = document.getElementById('planetSizeSlider');
+        const viewModeSelect = document.getElementById('viewModeSelect');
+        const togglePlayPauseButton = document.getElementById('togglePlayPause');
+        const resetButton = document.getElementById('resetButton');
+        const scaleComparisonButton = document.getElementById('scaleComparisonButton');
+        const simulationDateSpan = document.getElementById('simulationDate');
+        const selectedPlanetInfoSpan = document.getElementById('selectedPlanetInfo');
+
+        speedSlider.oninput = (event) => { simulationSpeed = parseFloat(event.target.value); };
+        planetSizeSlider.oninput = (event) => { planetSizeMultiplier = parseFloat(event.target.value); };
+        viewModeSelect.onchange = (event) => {
+            viewMode = event.target.value;
+            // Reset scale comparison mode if view mode changes
+            if (scaleComparisonMode) toggleScaleComparisonMode();
+            updateSolarSystem(); // Force an update to apply new scaling
+        };
+        togglePlayPauseButton.onclick = () => {
+            isPaused = !isPaused;
+            togglePlayPauseButton.textContent = isPaused ? 'Play' : 'Pause';
+        };
+        resetButton.onclick = () => {
+            timeElapsed = 0;
+            isPaused = false;
+            togglePlayPauseButton.textContent = 'Pause';
+            if (scaleComparisonMode) toggleScaleComparisonMode(); // Exit comparison mode on reset
+            selectedPlanet = null;
+            hideVectorArrows();
+            camera.position.set(0, auToUnits(10), auToUnits(10));
+            controls.target.set(0, 0, 0);
+            controls.update();
+            updateSolarSystem();
+        };
+
+        scaleComparisonButton.onclick = toggleScaleComparisonMode;
+
+        function toggleScaleComparisonMode() {
+            scaleComparisonMode = !scaleComparisonMode;
+            scaleComparisonButton.textContent = scaleComparisonMode ? 'Exit Scale Comparison' : 'Scale Comparison Mode';
+            isPaused = scaleComparisonMode; // Pause simulation during comparison
+            togglePlayPauseButton.textContent = isPaused ? 'Play' : 'Pause';
+            hideVectorArrows(); // Hide arrows in comparison mode
+            selectedPlanet = null; // Deselect any planet
+            selectedPlanetInfoSpan.textContent = 'Hover over a planet for details.';
+
+            if (scaleComparisonMode) {
+                // Adjust camera for comparison view
+                camera.position.set(0, auToUnits(5), auToUnits(5));
+                controls.target.set(0, 0, 0);
+                controls.update();
+            } else {
+                // Restore original camera position or a reasonable default
+                camera.position.set(0, auToUnits(10), auToUnits(10));
+                controls.target.set(0, 0, 0);
+                controls.update();
+            }
+            updateSolarSystem(); // Force update
+        }
+
+
+        function updateUILabels() {
+            const daysSinceJ2000 = Math.floor(timeElapsed);
+            const date = new Date(2000, 0, 1); // J2000.0 is Jan 1, 2000, 12:00 TT
+            date.setDate(date.getDate() + daysSinceJ2000);
+            simulationDateSpan.textContent = `Date: ${date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
+
+            if (selectedPlanet && !scaleComparisonMode) {
+                const planetData = selectedPlanet.userData;
+                const currentDistance_units = selectedPlanet.position.length();
+                const currentDistance_km = currentDistance_units * KM_PER_UNIT;
+                const orbitalVelocity_kms = calculateOrbitalVelocity(planetData, currentDistance_km);
+                selectedPlanetInfoSpan.innerHTML = `
+                    <strong>Selected: ${planetData.name}</strong><br>
+                    Distance from Sun: ${(currentDistance_km / AU).toFixed(3)} AU<br>
+                    Orbital Velocity: ${orbitalVelocity_kms.toFixed(2)} km/s
+                `;
+            } else if (hoverPlanet && !scaleComparisonMode) {
+                 const planetData = hoverPlanet.userData;
+                const currentDistance_units = hoverPlanet.position.length();
+                const currentDistance_km = currentDistance_units * KM_PER_UNIT;
+                const orbitalVelocity_kms = calculateOrbitalVelocity(planetData, currentDistance_km);
+                selectedPlanetInfoSpan.innerHTML = `
+                    <strong>Hovering: ${planetData.name}</strong><br>
+                    Distance from Sun: ${(currentDistance_km / AU).toFixed(3)} AU<br>
+                    Orbital Velocity: ${orbitalVelocity_kms.toFixed(2)} km/s
+                `;
+            }
+            else {
+                selectedPlanetInfoSpan.textContent = 'Hover over a planet for details.';
+            }
+        }
+
+        // --- Event Listeners ---
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(planets);
+
+            if (intersects.length > 0) {
+                const newHoverPlanet = intersects[0].object;
+                if (hoverPlanet !== newHoverPlanet) {
+                    hoverPlanet = newHoverPlanet;
+                    // Update info panel for hover
+                    const planetData = hoverPlanet.userData;
+                    const currentDistance_units = hoverPlanet.position.length();
+                    const currentDistance_km = currentDistance_units * KM_PER_UNIT;
+                    const orbitalVelocity_kms = calculateOrbitalVelocity(planetData, currentDistance_km);
+
+                    planetInfoDiv.innerHTML = `
+                        <strong>${planetData.name}</strong><br>
+                        Distance: ${(currentDistance_km / AU).toFixed(3)} AU<br>
+                        Velocity: ${orbitalVelocity_kms.toFixed(2)} km/s
+                    `;
+                    planetInfoDiv.style.left = `${event.clientX + 15}px`;
+                    planetInfoDiv.style.top = `${event.clientY + 15}px`;
+                    planetInfoDiv.classList.add('visible');
+                }
+            } else {
+                if (hoverPlanet) {
+                    hoverPlanet = null;
+                    planetInfoDiv.classList.remove('visible');
+                }
+            }
+        }
+
+        function onMouseClick(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(planets);
+
+            if (intersects.length > 0) {
+                const clickedPlanet = intersects[0].object;
+                if (selectedPlanet === clickedPlanet) {
+                    // Deselect if clicking the same planet
+                    selectedPlanet = null;
+                    hideVectorArrows();
+                } else {
+                    selectedPlanet = clickedPlanet;
+                    updateVectorArrows(selectedPlanet);
+                }
+            } else {
+                // Clicked on empty space, deselect
+                selectedPlanet = null;
+                hideVectorArrows();
+            }
+            updateUILabels(); // Update info panel based on selection
+        }
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('click', onMouseClick);
+
+        // Resize handler
+        const resizeObserver = new ResizeObserver(() => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        resizeObserver.observe(document.body);
+
+        // --- Start Simulation ---
+        initSolarSystem();
+        createVectorArrows();
+        animate();
+    </script>
+</body>
+</html>
+
+
+
+
+
+<!-- 
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU Architecture & Parallel Processing Simulation</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0a0a0f; color: #e0e0e0; }
+        canvas { display: block; }
+        #ui-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 300px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        #ui-overlay label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #a0d0ff;
+        }
+        #ui-overlay input[type="range"], #ui-overlay select, #ui-overlay button {
+            width: 100%;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #333;
+            background-color: #222;
+            color: #e0e0e0;
+            font-size: 0.9em;
+            box-sizing: border-box;
+        }
+        #ui-overlay input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+        }
+        #ui-overlay button {
+            background-color: #007bff;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #ui-overlay button:hover { background-color: #0056b3; }
+        #ui-overlay .metrics {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+            font-size: 0.9em;
+            color: #c0c0c0;
+        }
+        #ui-overlay .metrics div { margin-bottom: 5px; }
+        .control-group { margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div id="ui-overlay">
+        <h2 style="margin:0 0 5px 0; font-size:1.1em; color:#a0d0ff;">GPU Simulation Controls</h2>
+
+        <div class="control-group">
+            <label for="processingMode">Processing Mode:</label>
+            <select id="processingMode">
+                <option value="gpu">GPU (Parallel - Throughput)</option>
+                <option value="cpu">CPU (Serial - Latency)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="coreCount">Core Count: <span id="coreCountValue">256</span></label>
+            <input type="range" id="coreCount" min="128" max="10240" value="256" step="128">
+        </div>
+
+        <div class="control-group">
+            <label for="clockSpeed">Clock Speed (GHz): <span id="clockSpeedValue">1.5</span></label>
+            <input type="range" id="clockSpeed" min="0.5" max="5.0" value="1.5" step="0.1">
+        </div>
+
+        <div class="control-group">
+            <label for="computeMode">Workload Type:</label>
+            <select id="computeMode">
+                <option value="graphics">Graphics (Pixel Shading)</option>
+                <option value="compute">Compute (Matrix Multiplication)</option>
+            </select>
+        </div>
+
+        <button id="playPauseBtn">Pause</button>
+        <button id="resetBtn">Reset</button>
+
+        <div class="metrics">
+            <div>GFLOPS: <span id="gflopsValue">0.00</span></div>
+            <div>Memory Bandwidth: <span id="memoryBandwidthValue">0.00</span> GB/s</div>
+        </div>
+    </div>
+
+    <!-- Load Three.js and OrbitControls from CDN as regular scripts (works with file://) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // --- Core Simulation Parameters ---
+        const SIM_PARAMS = {
+            processingMode: 'gpu',
+            coreCount: 256,
+            clockSpeedGHz: 1.5,
+            computeMode: 'graphics',
+            animationSpeed: 1.0,
+            paused: false,
+            branchDivergenceChance: 0.0005,
+            dataPacketSizeKB: 4,
+            maxDataPackets: 2000,
+            maxCPUPackets: 5,
+            smCount: 8,
+            coresPerSM: 32,
+            packetGenerationRate: 0.05,
+            packetTravelSpeed: 0.02,
+            coreProcessingTime: 100,
+            memoryAccessTime: 30,
+        };
+
+        let scene, camera, renderer, controls;
+        let gpuGroup, cpuGroup;
+        let coreInstancedMesh, dataPacketInstancedMesh;
+        let vramMesh, l2CacheMesh, l1CacheMesh, registersMesh;
+        let pipelineF, pipelineD, pipelineE;
+        let cpuCoreMesh;
+
+        const coreStates = [];
+        const dataPackets = [];
+        const coreTransforms = [];
+        const coreColors = [];
+
+        const COLORS = {
+            background: new THREE.Color(0x0a0a0f),
+            vram: new THREE.Color(0x8844ff),
+            l2Cache: new THREE.Color(0x4488ff),
+            l1Cache: new THREE.Color(0x44ff88),
+            registers: new THREE.Color(0xff8844),
+            coreIdle: new THREE.Color(0x202040),
+            coreProcessingStart: new THREE.Color(0x007bff),
+            coreProcessingMid: new THREE.Color(0x00ff7f),
+            coreProcessingEnd: new THREE.Color(0xffff00),
+            coreStalled: new THREE.Color(0xff0000),
+            dataPacket: new THREE.Color(0xffffff),
+            dataPacketProcessed: new THREE.Color(0x00ff00),
+            pipelineF: new THREE.Color(0xffa500),
+            pipelineD: new THREE.Color(0x8a2be2),
+            pipelineE: new THREE.Color(0x00ced1),
+            cpuCore: new THREE.Color(0x800080),
+        };
+
+        let totalProcessedPackets = 0;
+        let totalMemoryTransferredKB = 0;
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let gflops = 0;
+        let memoryBandwidth = 0;
+
+        // --- Initialization ---
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = COLORS.background;
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 15, 30);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            const ambientLight = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 7);
+            scene.add(directionalLight);
+
+            gpuGroup = new THREE.Group();
+            scene.add(gpuGroup);
+            cpuGroup = new THREE.Group();
+            scene.add(cpuGroup);
+
+            setupUI();
+            buildScene();
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        function buildScene() {
+            gpuGroup.clear();
+            cpuGroup.clear();
+            coreStates.length = 0;
+            dataPackets.length = 0;
+            coreTransforms.length = 0;
+            coreColors.length = 0;
+            totalProcessedPackets = 0;
+            totalMemoryTransferredKB = 0;
+
+            if (SIM_PARAMS.processingMode === 'gpu') {
+                buildGPUScene();
+                gpuGroup.visible = true;
+                cpuGroup.visible = false;
+            } else {
+                buildCPUScene();
+                gpuGroup.visible = false;
+                cpuGroup.visible = true;
+            }
+        }
+
+        function buildGPUScene() {
+            const memMaterial = new THREE.MeshStandardMaterial({ color: COLORS.vram, emissive: COLORS.vram, emissiveIntensity: 0.1 });
+            const memGeometry = new THREE.BoxGeometry(10, 1, 5);
+
+            vramMesh = new THREE.Mesh(memGeometry, memMaterial.clone());
+            vramMesh.position.set(-15, 0, 0);
+            vramMesh.name = 'VRAM';
+            gpuGroup.add(vramMesh);
+
+            l2CacheMesh = new THREE.Mesh(memGeometry.clone(), memMaterial.clone());
+            l2CacheMesh.material.color.copy(COLORS.l2Cache);
+            l2CacheMesh.material.emissive.copy(COLORS.l2Cache);
+            l2CacheMesh.position.set(-5, 0, 0);
+            gpuGroup.add(l2CacheMesh);
+
+            l1CacheMesh = new THREE.Mesh(memGeometry.clone(), memMaterial.clone());
+            l1CacheMesh.material.color.copy(COLORS.l1Cache);
+            l1CacheMesh.material.emissive.copy(COLORS.l1Cache);
+            l1CacheMesh.position.set(5, 0, 0);
+            gpuGroup.add(l1CacheMesh);
+
+            registersMesh = new THREE.Mesh(new THREE.BoxGeometry(5, 1, 3), memMaterial.clone());
+            registersMesh.material.color.copy(COLORS.registers);
+            registersMesh.material.emissive.copy(COLORS.registers);
+            registersMesh.position.set(12.5, 0, 0);
+            gpuGroup.add(registersMesh);
+
+            const pipelineGeometry = new THREE.BoxGeometry(1, 0.5, 0.5);
+
+            pipelineF = new THREE.Mesh(pipelineGeometry, new THREE.MeshStandardMaterial({ color: COLORS.pipelineF, emissive: COLORS.pipelineF, emissiveIntensity: 0.1 }));
+            pipelineF.position.set(16, 0.5, 0);
+            gpuGroup.add(pipelineF);
+
+            pipelineD = new THREE.Mesh(pipelineGeometry, new THREE.MeshStandardMaterial({ color: COLORS.pipelineD, emissive: COLORS.pipelineD, emissiveIntensity: 0.1 }));
+            pipelineD.position.set(17.5, 0.5, 0);
+            gpuGroup.add(pipelineD);
+
+            pipelineE = new THREE.Mesh(pipelineGeometry, new THREE.MeshStandardMaterial({ color: COLORS.pipelineE, emissive: COLORS.pipelineE, emissiveIntensity: 0.1 }));
+            pipelineE.position.set(19, 0.5, 0);
+            gpuGroup.add(pipelineE);
+
+            // --- Core Grid ---
+            const totalCores = SIM_PARAMS.coreCount;
+            const smCount = SIM_PARAMS.smCount;
+            const coresPerSM = Math.ceil(totalCores / smCount);
+            SIM_PARAMS.coresPerSM = coresPerSM;
+
+            const smGridX = Math.ceil(Math.sqrt(smCount));
+            const smGridY = Math.ceil(smCount / smGridX);
+            const coreSpacing = 1.2;
+            const smSpacing = 5;
+
+            let coreId = 0;
+            for (let smY = 0; smY < smGridY; smY++) {
+                for (let smX = 0; smX < smGridX; smX++) {
+                    if (coreId >= totalCores) break;
+                    const currentSMcores = Math.min(coresPerSM, totalCores - coreId);
+                    const smCoresGridX = Math.ceil(Math.sqrt(currentSMcores));
+                    const smCoresGridY = Math.ceil(currentSMcores / smCoresGridX);
+
+                    for (let y = 0; y < smCoresGridY; y++) {
+                        for (let x = 0; x < smCoresGridX; x++) {
+                            if (coreId >= totalCores) break;
+                            const matrix = new THREE.Matrix4();
+                            const position = new THREE.Vector3(
+                                smX * smSpacing + x * coreSpacing - (smGridX * smSpacing - smSpacing) / 2,
+                                y * coreSpacing - (smCoresGridY * coreSpacing - coreSpacing) / 2,
+                                0
+                            );
+                            position.x += 25;
+                            matrix.setPosition(position);
+                            coreTransforms.push(matrix);
+                            coreColors.push(COLORS.coreIdle.clone());
+                            coreStates.push({
+                                active: false,
+                                processingTime: 0,
+                                smId: smY * smGridX + smX,
+                                stalled: false,
+                                position: position.clone(),
+                                pipelineProgress: 0
+                            });
+                            coreId++;
+                        }
+                    }
+                }
+            }
+
+            const coreGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+            const coreMaterial = new THREE.MeshPhongMaterial({ color: 0x202040, vertexColors: false });
+
+            coreInstancedMesh = new THREE.InstancedMesh(coreGeometry, coreMaterial, totalCores);
+            for (let i = 0; i < totalCores; i++) {
+                coreInstancedMesh.setMatrixAt(i, coreTransforms[i]);
+                coreInstancedMesh.setColorAt(i, coreColors[i]);
+            }
+            coreInstancedMesh.instanceMatrix.needsUpdate = true;
+            coreInstancedMesh.instanceColor.needsUpdate = true;
+            gpuGroup.add(coreInstancedMesh);
+
+            // Data Packets
+            const packetGeometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+            const packetMaterial = new THREE.MeshStandardMaterial({ color: COLORS.dataPacket });
+            dataPacketInstancedMesh = new THREE.InstancedMesh(packetGeometry, packetMaterial, SIM_PARAMS.maxDataPackets);
+
+            for (let i = 0; i < SIM_PARAMS.maxDataPackets; i++) {
+                dataPacketInstancedMesh.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
+            }
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+            gpuGroup.add(dataPacketInstancedMesh);
+        }
+
+        function buildCPUScene() {
+            const cpuCoreGeometry = new THREE.BoxGeometry(5, 3, 3);
+            const cpuCoreMaterial = new THREE.MeshStandardMaterial({ color: COLORS.cpuCore, emissive: COLORS.cpuCore, emissiveIntensity: 0.1 });
+            cpuCoreMesh = new THREE.Mesh(cpuCoreGeometry, cpuCoreMaterial);
+            cpuCoreMesh.position.set(0, 0, 0);
+            cpuGroup.add(cpuCoreMesh);
+
+            const packetGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const packetMaterial = new THREE.MeshStandardMaterial({ color: COLORS.dataPacket });
+            dataPacketInstancedMesh = new THREE.InstancedMesh(packetGeometry, packetMaterial, SIM_PARAMS.maxCPUPackets);
+
+            for (let i = 0; i < SIM_PARAMS.maxCPUPackets; i++) {
+                dataPacketInstancedMesh.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
+            }
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+            cpuGroup.add(dataPacketInstancedMesh);
+
+            coreStates.push({
+                active: false,
+                processingTime: 0,
+                smId: 0,
+                stalled: false,
+                position: cpuCoreMesh.position.clone(),
+                pipelineProgress: 0
+            });
+        }
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+
+            if (!SIM_PARAMS.paused) {
+                const deltaTime = (time - lastFrameTime) / 1000 || 0;
+                lastFrameTime = time;
+                frameCount++;
+
+                if (SIM_PARAMS.processingMode === 'gpu') {
+                    updateGPUSimulation(deltaTime);
+                } else {
+                    updateCPUSimulation(deltaTime);
+                }
+                updateMetrics(deltaTime);
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function updateGPUSimulation(deltaTime) {
+            const totalCores = SIM_PARAMS.coreCount;
+            const smCount = SIM_PARAMS.smCount;
+            const activeDataPackets = dataPackets.filter(p => p.state !== 'completed' && p.state !== 'idle').length;
+
+            if (activeDataPackets < SIM_PARAMS.maxDataPackets) {
+                for (let i = 0; i < smCount; i++) {
+                    if (Math.random() < SIM_PARAMS.packetGenerationRate * SIM_PARAMS.animationSpeed) {
+                        const availableCores = coreStates.filter(c => !c.active && c.smId === i && !c.stalled);
+                        if (availableCores.length > 0) {
+                            const targetCore = availableCores[Math.floor(Math.random() * availableCores.length)];
+                            const packetId = dataPackets.length;
+                            if (packetId < SIM_PARAMS.maxDataPackets) {
+                                dataPackets.push({
+                                    instanceId: packetId,
+                                    state: 'originating',
+                                    targetCoreId: coreStates.indexOf(targetCore),
+                                    progress: 0,
+                                    startTime: performance.now(),
+                                    currentPosition: vramMesh.position.clone(),
+                                    color: COLORS.dataPacket.clone()
+                                });
+                                totalMemoryTransferredKB += SIM_PARAMS.dataPacketSizeKB;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (let i = 0; i < totalCores; i++) {
+                const core = coreStates[i];
+                if (Math.random() < SIM_PARAMS.branchDivergenceChance * SIM_PARAMS.animationSpeed && core.active) {
+                    core.stalled = true;
+                    core.processingTime = 0;
+                }
+
+                if (core.stalled) {
+                    coreColors[i].copy(COLORS.coreStalled);
+                    core.processingTime += SIM_PARAMS.animationSpeed;
+                    if (core.processingTime > SIM_PARAMS.coreProcessingTime * 2) {
+                        core.stalled = false;
+                        core.active = false;
+                        core.processingTime = 0;
+                    }
+                } else if (core.active) {
+                    core.processingTime += SIM_PARAMS.animationSpeed;
+                    const progress = core.processingTime / SIM_PARAMS.coreProcessingTime;
+                    if (progress < 0.5) {
+                        coreColors[i].lerpColors(COLORS.coreProcessingStart, COLORS.coreProcessingMid, progress * 2);
+                    } else {
+                        coreColors[i].lerpColors(COLORS.coreProcessingMid, COLORS.coreProcessingEnd, (progress - 0.5) * 2);
+                    }
+                    if (core.processingTime >= SIM_PARAMS.coreProcessingTime) {
+                        core.active = false;
+                        core.processingTime = 0;
+                        coreColors[i].copy(COLORS.coreIdle);
+                        totalProcessedPackets++;
+                    }
+                } else {
+                    coreColors[i].copy(COLORS.coreIdle);
+                }
+                coreInstancedMesh.setColorAt(i, coreColors[i]);
+            }
+            coreInstancedMesh.instanceColor.needsUpdate = true;
+
+            const tempMatrix = new THREE.Matrix4();
+            const tempColor = new THREE.Color();
+            const packetSpeed = SIM_PARAMS.packetTravelSpeed * SIM_PARAMS.animationSpeed;
+
+            vramMesh.material.emissiveIntensity = 0.1;
+            l2CacheMesh.material.emissiveIntensity = 0.1;
+            l1CacheMesh.material.emissiveIntensity = 0.1;
+            registersMesh.material.emissiveIntensity = 0.1;
+            pipelineF.material.emissiveIntensity = 0.1;
+            pipelineD.material.emissiveIntensity = 0.1;
+            pipelineE.material.emissiveIntensity = 0.1;
+
+            for (let i = 0; i < dataPackets.length; i++) {
+                const packet = dataPackets[i];
+                const targetCore = coreStates[packet.targetCoreId];
+                const targetCorePos = targetCore ? targetCore.position : new THREE.Vector3();
+
+                let currentTargetPos, nextState, currentMesh;
+
+                switch (packet.state) {
+                    case 'originating':
+                        currentTargetPos = l2CacheMesh.position; nextState = 'traveling_L2'; currentMesh = vramMesh; break;
+                    case 'traveling_L2':
+                        currentTargetPos = l1CacheMesh.position; nextState = 'traveling_L1'; currentMesh = l2CacheMesh; break;
+                    case 'traveling_L1':
+                        currentTargetPos = registersMesh.position; nextState = 'traveling_registers'; currentMesh = l1CacheMesh; break;
+                    case 'traveling_registers':
+                        currentTargetPos = pipelineF.position; nextState = 'traveling_F'; currentMesh = registersMesh; break;
+                    case 'traveling_F':
+                        currentTargetPos = pipelineD.position; nextState = 'traveling_D'; currentMesh = pipelineF; break;
+                    case 'traveling_D':
+                        currentTargetPos = pipelineE.position; nextState = 'traveling_E'; currentMesh = pipelineD; break;
+                    case 'traveling_E':
+                        currentTargetPos = targetCorePos; nextState = 'processing_core'; currentMesh = pipelineE; break;
+                    case 'processing_core':
+                        tempMatrix.makeScale(0, 0, 0);
+                        dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                        if (!targetCore.active && !targetCore.stalled) {
+                            targetCore.active = true;
+                            targetCore.processingTime = 0;
+                        }
+                        if (!targetCore.active && !targetCore.stalled) {
+                            packet.state = 'completed';
+                        }
+                        continue;
+                    case 'completed':
+                        tempMatrix.makeScale(0, 0, 0);
+                        dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                        continue;
+                    default:
+                        continue;
+                }
+
+                if (currentMesh) {
+                    currentMesh.material.emissiveIntensity = 0.5 + Math.sin(performance.now() * 0.01) * 0.2;
+                }
+
+                packet.progress += packetSpeed;
+                if (packet.progress >= 1) {
+                    packet.progress = 0;
+                    packet.state = nextState;
+                    packet.currentPosition.copy(currentTargetPos);
+                } else {
+                    packet.currentPosition.lerpVectors(packet.currentPosition, currentTargetPos, packet.progress);
+                }
+
+                tempMatrix.setPosition(packet.currentPosition);
+                dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                dataPacketInstancedMesh.setColorAt(packet.instanceId, tempColor.copy(packet.color));
+            }
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+            if (dataPacketInstancedMesh.instanceColor) dataPacketInstancedMesh.instanceColor.needsUpdate = true;
+        }
+
+        function updateCPUSimulation(deltaTime) {
+            const cpuCore = coreStates[0];
+            const activeDataPackets = dataPackets.filter(p => p.state !== 'completed' && p.state !== 'idle').length;
+
+            if (activeDataPackets < SIM_PARAMS.maxCPUPackets && !cpuCore.active) {
+                if (Math.random() < SIM_PARAMS.packetGenerationRate * SIM_PARAMS.animationSpeed * 0.5) {
+                    const packetId = dataPackets.length;
+                    dataPackets.push({
+                        instanceId: packetId,
+                        state: 'originating',
+                        targetCoreId: 0,
+                        progress: 0,
+                        startTime: performance.now(),
+                        currentPosition: new THREE.Vector3(-10, 0, 0),
+                        color: COLORS.dataPacket.clone()
+                    });
+                    totalMemoryTransferredKB += SIM_PARAMS.dataPacketSizeKB;
+                }
+            }
+
+            if (cpuCore.active) {
+                cpuCore.processingTime += SIM_PARAMS.animationSpeed;
+                const progress = cpuCore.processingTime / (SIM_PARAMS.coreProcessingTime / 5);
+                cpuCoreMesh.material.emissiveIntensity = 0.5 + Math.sin(progress * Math.PI * 2) * 0.4;
+                if (cpuCore.processingTime >= (SIM_PARAMS.coreProcessingTime / 5)) {
+                    cpuCore.active = false;
+                    cpuCore.processingTime = 0;
+                    cpuCoreMesh.material.emissiveIntensity = 0.1;
+                    totalProcessedPackets++;
+                }
+            } else {
+                cpuCoreMesh.material.emissiveIntensity = 0.1;
+            }
+
+            const tempMatrix = new THREE.Matrix4();
+            const tempColor = new THREE.Color();
+            const packetSpeed = SIM_PARAMS.packetTravelSpeed * SIM_PARAMS.animationSpeed * 2;
+            const targetCorePos = cpuCoreMesh.position;
+
+            for (let i = 0; i < dataPackets.length; i++) {
+                const packet = dataPackets[i];
+
+                if (packet.state === 'originating') {
+                    packet.progress += packetSpeed;
+                    packet.currentPosition.lerpVectors(packet.currentPosition, targetCorePos, packet.progress);
+                    if (packet.progress >= 1) {
+                        packet.progress = 0;
+                        packet.state = 'processing_core';
+                        packet.currentPosition.copy(targetCorePos);
+                    }
+                } else if (packet.state === 'processing_core') {
+                    tempMatrix.makeScale(0, 0, 0);
+                    dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                    if (!cpuCore.active) {
+                        cpuCore.active = true;
+                        cpuCore.processingTime = 0;
+                    }
+                    if (!cpuCore.active) {
+                        packet.state = 'completed';
+                    }
+                    continue;
+                } else if (packet.state === 'completed') {
+                    tempMatrix.makeScale(0, 0, 0);
+                    dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                    continue;
+                }
+
+                tempMatrix.setPosition(packet.currentPosition);
+                dataPacketInstancedMesh.setMatrixAt(packet.instanceId, tempMatrix);
+                dataPacketInstancedMesh.setColorAt(packet.instanceId, tempColor.copy(packet.color));
+            }
+            dataPacketInstancedMesh.instanceMatrix.needsUpdate = true;
+            if (dataPacketInstancedMesh.instanceColor) dataPacketInstancedMesh.instanceColor.needsUpdate = true;
+        }
+
+        function updateMetrics(deltaTime) {
+            let activeCores = 0;
+            if (SIM_PARAMS.processingMode === 'gpu') {
+                activeCores = coreStates.filter(c => c.active && !c.stalled).length;
+                const packetsPerSecondPerCore = (60 / SIM_PARAMS.coreProcessingTime) * SIM_PARAMS.animationSpeed;
+                gflops = (activeCores * packetsPerSecondPerCore * 1000) / 1e9 * SIM_PARAMS.clockSpeedGHz;
+            } else {
+                activeCores = coreStates.filter(c => c.active).length;
+                const packetsPerSecondPerCore = (60 / (SIM_PARAMS.coreProcessingTime / 5)) * SIM_PARAMS.animationSpeed;
+                gflops = (activeCores * packetsPerSecondPerCore * 1000) / 1e9 * SIM_PARAMS.clockSpeedGHz;
+            }
+
+            const packetsGeneratedPerSecond = (SIM_PARAMS.processingMode === 'gpu' ? SIM_PARAMS.smCount : 1) * SIM_PARAMS.packetGenerationRate * 60 * SIM_PARAMS.animationSpeed;
+            memoryBandwidth = (packetsGeneratedPerSecond * SIM_PARAMS.dataPacketSizeKB) / 1024 / 1024;
+
+            document.getElementById('gflopsValue').textContent = gflops.toFixed(2);
+            document.getElementById('memoryBandwidthValue').textContent = memoryBandwidth.toFixed(2);
+        }
+
+        function setupUI() {
+            const coreCountSlider = document.getElementById('coreCount');
+            const coreCountValue = document.getElementById('coreCountValue');
+            const clockSpeedSlider = document.getElementById('clockSpeed');
+            const clockSpeedValue = document.getElementById('clockSpeedValue');
+            const processingModeSelect = document.getElementById('processingMode');
+            const computeModeSelect = document.getElementById('computeMode');
+            const playPauseBtn = document.getElementById('playPauseBtn');
+            const resetBtn = document.getElementById('resetBtn');
+
+            coreCountSlider.oninput = (e) => {
+                SIM_PARAMS.coreCount = parseInt(e.target.value);
+                coreCountValue.textContent = SIM_PARAMS.coreCount;
+                if (SIM_PARAMS.processingMode === 'gpu') buildScene();
+            };
+
+            clockSpeedSlider.oninput = (e) => {
+                SIM_PARAMS.clockSpeedGHz = parseFloat(e.target.value);
+                clockSpeedValue.textContent = SIM_PARAMS.clockSpeedGHz;
+            };
+
+            processingModeSelect.onchange = (e) => {
+                SIM_PARAMS.processingMode = e.target.value;
+                buildScene();
+                coreCountSlider.disabled = (SIM_PARAMS.processingMode === 'cpu');
+                coreCountValue.textContent = SIM_PARAMS.processingMode === 'cpu' ? 'N/A' : SIM_PARAMS.coreCount;
+            };
+
+            computeModeSelect.onchange = (e) => { SIM_PARAMS.computeMode = e.target.value; };
+
+            playPauseBtn.onclick = () => {
+                SIM_PARAMS.paused = !SIM_PARAMS.paused;
+                playPauseBtn.textContent = SIM_PARAMS.paused ? 'Play' : 'Pause';
+            };
+
+            resetBtn.onclick = () => {
+                SIM_PARAMS.processingMode = 'gpu';
+                SIM_PARAMS.coreCount = 256;
+                SIM_PARAMS.clockSpeedGHz = 1.5;
+                SIM_PARAMS.computeMode = 'graphics';
+                SIM_PARAMS.animationSpeed = 1.0;
+                SIM_PARAMS.paused = false;
+
+                coreCountSlider.value = SIM_PARAMS.coreCount;
+                coreCountValue.textContent = SIM_PARAMS.coreCount;
+                clockSpeedSlider.value = SIM_PARAMS.clockSpeedGHz;
+                clockSpeedValue.textContent = SIM_PARAMS.clockSpeedGHz;
+                processingModeSelect.value = SIM_PARAMS.processingMode;
+                computeModeSelect.value = SIM_PARAMS.computeMode;
+                playPauseBtn.textContent = 'Pause';
+                coreCountSlider.disabled = false;
+                buildScene();
+            };
+
+            coreCountSlider.disabled = (SIM_PARAMS.processingMode === 'cpu');
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Wait for scripts to load then init
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html> -->
