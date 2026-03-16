@@ -5,16 +5,18 @@ interface SearchBarProps {
   prompt: string;
   setPrompt: (val: string) => void;
   onGenerate: () => void;
+  // NEW PROPS ADDED HERE:
+  selectedModel: string;
+  setSelectedModel: (val: string) => void;
+  contentType: string;
+  setContentType: (val: string) => void;
 }
 
 const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
-  ({ prompt, setPrompt, onGenerate }, ref) => {
-    // Dropdown states
+  ({ prompt, setPrompt, onGenerate, selectedModel, setSelectedModel, contentType, setContentType }, ref) => {
+    // Dropdown states (UI only)
     const [isAutoOpen, setIsAutoOpen] = useState(false);
-    const [selectedModel, setSelectedModel] = useState("Auto");
-
     const [isContextOpen, setIsContextOpen] = useState(false);
-    const [selectedContext, setSelectedContext] = useState<string | null>(null);
 
     // Refs for clicking outside
     const autoRef = useRef<HTMLDivElement>(null);
@@ -36,8 +38,8 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
     // Listen for backspace to delete the context pill
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') onGenerate();
-      if (e.key === 'Backspace' && prompt === '' && selectedContext) {
-        setSelectedContext(null); // Instantly deletes the whole @ tag
+      if (e.key === 'Backspace' && prompt === '' && contentType) {
+        setContentType(""); // Instantly deletes the whole @ tag
       }
     };
 
@@ -54,10 +56,10 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
         {/* Input Area */}
         <div className="flex items-center px-1">
           {/* Dynamic Context Pill */}
-          {selectedContext && (
+          {contentType && (
             <div className="flex items-center bg-green-100 text-green-800 text-sm font-semibold px-2 py-0.5 rounded-md ml-2 whitespace-nowrap gap-1">
-              @{selectedContext}
-              <button onClick={() => setSelectedContext(null)} className="hover:text-green-900 bg-green-200 rounded-full p-0.5 ml-1">
+              @{contentType.replace('_', ' ')}
+              <button onClick={() => setContentType("")} className="hover:text-green-900 bg-green-200 rounded-full p-0.5 ml-1">
                 <X size={10} />
               </button>
             </div>
@@ -66,7 +68,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
           <input
             ref={ref}
             type="text"
-            placeholder={selectedContext ? "Continue typing..." : "Learn anything / Generate 3D Scene..."}
+            placeholder={contentType ? "Continue typing..." : "Learn anything / Generate 3D Scene..."}
             className="w-full p-3 outline-none text-gray-800 placeholder-gray-400 bg-transparent flex-1"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -82,9 +84,12 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
             <div className="relative" ref={autoRef}>
               <button
                 onClick={() => setIsAutoOpen(!isAutoOpen)}
-                className="text-xs text-gray-600 hover:bg-gray-100 px-2 py-1 rounded flex items-center gap-1 border border-gray-200 transition-colors bg-white font-medium"
+                className="text-xs text-gray-600 hover:bg-gray-100 px-2 py-1 rounded flex items-center gap-1 border border-gray-200 transition-colors bg-white font-medium whitespace-nowrap"
               >
-                {selectedModel} <ChevronDown size={12} className="ml-1 text-gray-400" />
+                {/* Fallback to ensure it is never empty */}
+                <Sparkles size={12} className={selectedModel === "Gemini 2.5 Flash" ? "text-amber-500" : "text-gray-500"} />
+                {selectedModel || "Gemini 2.5 Flash"}
+                <ChevronDown size={12} className="ml-1 text-gray-400" />
               </button>
 
               {isAutoOpen && (
@@ -125,7 +130,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
                   {contextOptions.map((opt) => (
                     <button
                       key={opt.id}
-                      onClick={() => { setSelectedContext(opt.id); setIsContextOpen(false); }}
+                      onClick={() => { setContentType(opt.id); setIsContextOpen(false); }}
                       className="w-full flex items-center gap-2 p-2 hover:bg-gray-50 rounded-lg text-sm text-gray-700"
                     >
                       <opt.icon size={14} className="text-gray-500" /> {opt.id.replace('_', ' ')}
@@ -139,7 +144,8 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
 
           <button
             onClick={onGenerate}
-            className="bg-gray-400 hover:bg-gray-500 text-white p-2 rounded-full transition-colors"
+            disabled={!prompt.trim()}
+            className="bg-gray-400 hover:bg-gray-500 disabled:opacity-50 text-white p-2 rounded-full transition-colors"
           >
             <ArrowUp size={16} />
           </button>
