@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Bot, X, Code, Loader2 } from "lucide-react";
+import { Bot, X, Code, Loader2, Maximize, Minimize } from "lucide-react";
 import SearchBar from "./SearchBar";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -28,6 +28,7 @@ function createMessageId(): string {
 export default function Space({ initialPrompt, initialContentType = "Text" }: SpaceProps) {
     const [prompt, setPrompt] = useState("");
     const [isCanvasOpen, setIsCanvasOpen] = useState(false);
+    const [isFullScreen, setIsFullScreen] = useState(false);
 
     const [selectedModel, setSelectedModel] = useState("Gemini 2.5 Flash");
     const [contentType, setContentType] = useState(initialContentType || "Text");
@@ -126,7 +127,7 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
         <div className="flex h-full w-full bg-white relative overflow-hidden">
 
             {/* LEFT SIDE: Chat Interface */}
-            <div className={`flex flex-col h-full transition-all duration-300 ease-in-out ${isCanvasOpen ? 'w-1/2 border-r border-gray-200' : 'w-full max-w-4xl mx-auto'}`}>
+            <div className={`flex flex-col h-full transition-all duration-300 ease-in-out ${isCanvasOpen ? (isFullScreen ? 'hidden' : 'w-1/2 border-r border-gray-200') : 'w-full max-w-4xl mx-auto'}`}>
 
                 {/* Scrollable Chat Area (Flex-1 allows it to take remaining space above search bar) */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-8">
@@ -232,10 +233,10 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
             </div>
 
             {/* RIGHT SIDE: Sliding Canvas Panel */}
-            <div className={`bg-[#fbfbfb] h-full transition-all duration-300 ease-in-out flex flex-col border-l border-gray-200 ${isCanvasOpen ? 'w-1/2 translate-x-0' : 'w-0 translate-x-full overflow-hidden'}`}>
+            <div className={`bg-[#fbfbfb] h-full transition-all duration-300 ease-in-out flex flex-col border-l border-gray-200 ${isCanvasOpen ? (isFullScreen ? 'w-full translate-x-0' : 'w-1/2 translate-x-0') : 'w-0 translate-x-full overflow-hidden'}`}>
                 <div className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-white shrink-0">
                     <span className="font-medium text-sm text-gray-800">SeeKro 3D Sandbox</span>
-                    <button onClick={() => setIsCanvasOpen(false)} className="text-gray-400 hover:text-gray-700 p-1 rounded-md hover:bg-gray-100 transition-colors">
+                    <button onClick={() => { setIsCanvasOpen(false); setIsFullScreen(false); }} className="text-gray-400 hover:text-gray-700 p-1 rounded-md hover:bg-gray-100 transition-colors">
                         <X size={18} />
                     </button>
                 </div>
@@ -243,12 +244,21 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
                     <div className="w-full h-full bg-black rounded-xl border border-gray-200 overflow-hidden relative shadow-inner">
                         {/* We use the code from the MOST RECENT message that has code */}
                         {latestCanvasCode ? (
-                            <iframe
-                                title="3D Canvas"
-                                srcDoc={canvasSrcDoc}
-                                className="w-full h-full border-0"
-                                sandbox="allow-scripts"
-                            />
+                            <>
+                                <iframe
+                                    title="3D Canvas"
+                                    srcDoc={canvasSrcDoc}
+                                    className="w-full h-full border-0"
+                                    sandbox="allow-scripts"
+                                />
+                                <button
+                                    onClick={() => setIsFullScreen(!isFullScreen)}
+                                    className="absolute bottom-4 right-4 bg-gray-800/70 hover:bg-gray-700 text-white p-2 rounded-lg backdrop-blur-sm transition-all shadow-lg z-10"
+                                    title={isFullScreen ? "Exit Full Screen" : "Full Screen"}
+                                >
+                                    {isFullScreen ? <Minimize size={20} /> : <Maximize size={20} />}
+                                </button>
+                            </>
                         ) : (
                             <div className="w-full h-full flex items-center justify-center">
                                 <span className="text-gray-500 text-sm">No simulation active.</span>
