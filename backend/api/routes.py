@@ -8,6 +8,11 @@ from services.quiz import generate_quiz
 from services.video import generate_video
 from services.falcon import expand_prompt 
 
+from Cards.dijkastraAlgo import get_dijkstra_content
+from Cards.astarAlgo import get_astar_content
+from Cards.greedyAlgo import get_greedy_content
+from Cards.Solar import get_solar_content
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -66,3 +71,15 @@ async def generate_content(request: GenerateRequest):
     except Exception as exc:
         logger.exception("Generation pipeline failed for context_type=%s", request.context_type)
         return _fallback_response(request.context_type, str(exc))
+
+@router.get("/cards/{topic_id}")
+async def get_card_content(topic_id: str):
+    cards_map = {
+        "dijkstra": get_dijkstra_content,
+        "a-star": get_astar_content,
+        "greedy": get_greedy_content,
+        "solar-system": get_solar_content
+    }
+    if topic_id in cards_map:
+        return cards_map[topic_id]()
+    return {"error": "Topic not found", "text_explanation": "Content not found for this topic.", "media_type": "Text"}

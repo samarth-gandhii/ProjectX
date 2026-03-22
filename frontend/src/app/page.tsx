@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import SearchBar from "@/components/SearchBar";
 import ContentGrid from "@/components/ContentGrid";
 import Space from "@/components/Space";
+import Cards from "@/components/Cards"; // <-- Added the import
 
 export default function Home() {
   const [userName] = useState("New User");
@@ -13,21 +14,24 @@ export default function Home() {
   const [showGuide, setShowGuide] = useState(false);
   const [selectedModel, setSelectedModel] = useState("Gemini 2.5 Flash");
   const [contentType, setContentType] = useState("Text");
-  
-  // Navigation State
-  const [activeView, setActiveView] = useState<"dashboard" | "space">("dashboard");
+
+  // Navigation State - Added "card" as an option
+  const [activeView, setActiveView] = useState<"dashboard" | "space" | "card">("dashboard");
   const [submittedPrompt, setSubmittedPrompt] = useState("");
   const [submittedContentType, setSubmittedContentType] = useState("Text");
 
+  // New state to keep track of which card was clicked (e.g., "dijkstra")
+  const [selectedTopicId, setSelectedTopicId] = useState("");
+
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Fires when user hits Enter on the Home Screen
+  // Fires when user hits Enter on the Home Screen Search Bar
   const handleGenerate = () => {
     if (!prompt.trim()) return;
     setSubmittedPrompt(prompt);
     setSubmittedContentType(contentType || "Text");
     setActiveView("space");
-    setPrompt(""); // Clear the home input bar
+    setPrompt("");
   };
 
   // Fires when user clicks "SeeKro" in the Sidebar
@@ -35,23 +39,30 @@ export default function Home() {
     setActiveView("dashboard");
     setSubmittedPrompt("");
     setSubmittedContentType("Text");
+    setSelectedTopicId(""); // Clear the topic ID
+  };
+
+  // NEW: Fires when user clicks a card in the ContentGrid
+  const handleCardSelect = (topicId: string) => {
+    setSelectedTopicId(topicId);
+    setActiveView("card");
   };
 
   return (
     <div className="flex h-screen bg-[#fafafa] text-gray-900 font-sans overflow-hidden">
-      
-      <Sidebar 
+
+      <Sidebar
         userName={userName}
         onSearchClick={() => {
           if (activeView !== "dashboard") setActiveView("dashboard");
           setTimeout(() => searchInputRef.current?.focus(), 100);
         }}
         onGuideToggle={() => setShowGuide(!showGuide)}
-        onHomeClick={handleHomeClick} // Passes the home navigation trigger
+        onHomeClick={handleHomeClick}
       />
 
       <main className="flex-1 overflow-y-auto bg-white relative flex flex-col">
-        
+
         {/* Only show upgrade button on dashboard */}
         {activeView === "dashboard" && (
           <div className="absolute top-4 right-6 z-10">
@@ -69,23 +80,26 @@ export default function Home() {
             </div>
 
             {/* <ActionCards showGuide={showGuide} /> */}
-            
-            <SearchBar 
+
+            <SearchBar
               ref={searchInputRef}
-              prompt={prompt} 
-              setPrompt={setPrompt} 
-              onGenerate={handleGenerate} 
-              selectedModel={selectedModel}       
-              setSelectedModel={setSelectedModel} 
-              contentType={contentType}           
+              prompt={prompt}
+              setPrompt={setPrompt}
+              onGenerate={handleGenerate}
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
+              contentType={contentType}
               setContentType={setContentType}
             />
-            
-            <ContentGrid />
+
+            <ContentGrid onCardClick={handleCardSelect} />
           </div>
+        ) : activeView === "space" ? (
+          // Mount the Space environment for general generation
+          <Space initialPrompt={submittedPrompt} initialContentType={submittedContentType} />
         ) : (
-          // Mount the Space environment and pass the prompt
-          <Space initialPrompt={submittedPrompt} initialContentType={submittedContentType} /> 
+          // Catch-all for "card" - Mount the specific Topic Card environment
+          <Cards topicId={selectedTopicId} />
         )}
 
       </main>

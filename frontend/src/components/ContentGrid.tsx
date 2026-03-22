@@ -2,13 +2,17 @@
 
 import { useState } from "react";
 import { AlignLeft, Play, ChevronDown, ChevronUp } from "lucide-react";
-import { useRouter } from "next/navigation"; // Added for routing to Space.tsx
+
+// 1. Added interface to accept the click handler from page.tsx
+interface ContentGridProps {
+  onCardClick?: (id: string) => void;
+}
 
 const CONTENT_DATA = [
   {
-    id: "dijkstra", // Changed to string IDs for easier routing
+    id: "dijkstra",
     title: "Dijkstra's Algorithm",
-    subtitle: "algorithms", // Used for filtering
+    subtitle: "algorithms",
     icon: <AlignLeft className="text-gray-400 mt-1 shrink-0" size={18} />,
     header: (
       <div className="h-32 bg-blue-900 relative">
@@ -41,7 +45,7 @@ const CONTENT_DATA = [
   {
     id: "solar-system",
     title: "Solar System Basics",
-    subtitle: "Space", // Used for filtering
+    subtitle: "Space",
     icon: <Play className="text-gray-400 mt-1 shrink-0" size={18} />,
     header: (
       <div className="h-32 bg-gray-800 relative">
@@ -53,12 +57,11 @@ const CONTENT_DATA = [
 
 const TABS = ["For You", "Algorithms", "Space"];
 
-export default function ContentGrid() {
-  const router = useRouter();
+// 2. Accept the prop here
+export default function ContentGrid({ onCardClick }: ContentGridProps) {
   const [activeTab, setActiveTab] = useState("For You");
   const [visibleCount, setVisibleCount] = useState(3);
 
-  // 1. Filter logic based on the active tab
   const filteredData = CONTENT_DATA.filter((card) => {
     if (activeTab === "For You") return true;
     if (activeTab === "Algorithms" && card.subtitle === "algorithms") return true;
@@ -76,11 +79,11 @@ export default function ContentGrid() {
 
   const isShowingAll = visibleCount >= filteredData.length;
 
-  // 2. Click handler to navigate to the Space view
+  // 3. Update click handler to use the prop instead of router.push
   const handleCardClick = (id: string) => {
-    // Assuming your routing is set up like /space/[id]
-    // If you are rendering conditionally on the same page instead, you would update state here.
-    router.push(`/space/${id}`); 
+    if (onCardClick) {
+      onCardClick(id);
+    }
   };
 
   return (
@@ -94,11 +97,10 @@ export default function ContentGrid() {
               setActiveTab(tab);
               setVisibleCount(3); // Reset visible count when switching tabs
             }}
-            className={`px-4 py-2 rounded-full text-sm whitespace-nowrap border transition-colors ${
-              activeTab === tab
+            className={`px-4 py-2 rounded-full text-sm whitespace-nowrap border transition-colors ${activeTab === tab
                 ? "bg-gray-900 text-white border-gray-900"
                 : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-            }`}
+              }`}
           >
             {tab}
           </button>

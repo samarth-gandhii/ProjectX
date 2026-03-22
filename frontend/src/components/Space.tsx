@@ -21,7 +21,6 @@ function createMessageId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
         return crypto.randomUUID();
     }
-
     return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -34,11 +33,8 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
     const [contentType, setContentType] = useState(initialContentType || "Text");
 
     const [isLoading, setIsLoading] = useState(false);
-
-    // 2. State is now an array of messages, not just a single string!
     const [messages, setMessages] = useState<Message[]>([]);
 
-    // Reference for auto-scrolling
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const hasAutoSubmittedInitialPrompt = useRef(false);
 
@@ -50,11 +46,9 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
     const generateContent = async (userPrompt: string) => {
         if (!userPrompt.trim()) return;
 
-        // Add the user's message to the chat history
         const userMsg: Message = { id: createMessageId(), role: "user", content: userPrompt };
         setMessages((prev) => [...prev, userMsg]);
 
-        // Build a backend-ready history including the current user prompt.
         const historyPayload = [...messages, userMsg].map((m) => ({
             role: m.role === "ai" ? "assistant" : "user",
             content: m.content
@@ -77,7 +71,6 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
 
             const data = await response.json();
 
-            // Add the AI's response to the chat history
             const aiMsg: Message = {
                 id: createMessageId(),
                 role: "ai",
@@ -87,7 +80,6 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
 
             setMessages((prev) => [...prev, aiMsg]);
 
-            // Auto-open canvas if code was generated
             if (data.media_type === "3D_simulation" && data.canvas_code) {
                 setIsCanvasOpen(true);
             }
@@ -105,7 +97,6 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
         }
     };
 
-    // Run automatically when the Space mounts with the prompt from the Home screen
     useEffect(() => {
         if (initialPrompt && !hasAutoSubmittedInitialPrompt.current) {
             hasAutoSubmittedInitialPrompt.current = true;
@@ -124,25 +115,20 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
     const canvasSrcDoc = `<!DOCTYPE html><html><head><style>body { margin: 0; overflow: hidden; background-color: #000; }</style><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script><script>window.OrbitControls = THREE.OrbitControls;</script></head><body><script>const __ENCODED_CODE__ = "${encodedCanvasCode}"; const __USER_CODE__ = decodeURIComponent(__ENCODED_CODE__); try { new Function(__USER_CODE__)(); } catch(e) { const errMsg = (e && e.message) ? e.message : String(e); const errorDiv = document.createElement('div'); errorDiv.style.color = 'red'; errorDiv.style.padding = '20px'; errorDiv.style.fontFamily = 'sans-serif'; errorDiv.textContent = 'Error running 3D code: ' + errMsg; document.body.innerHTML = ''; document.body.appendChild(errorDiv); }</script></body></html>`;
 
     return (
-        <div className="flex h-full w-full bg-white relative overflow-hidden">
+        <div className="flex absolute inset-0 w-full h-full bg-white overflow-hidden">
 
-            {/* LEFT SIDE: Chat Interface */}
-            <div className={`flex flex-col h-full transition-all duration-300 ease-in-out ${isCanvasOpen ? (isFullScreen ? 'hidden' : 'w-1/2 border-r border-gray-200') : 'w-full max-w-4xl mx-auto'}`}>
+            {/* LEFT SIDE: Chat Interface - Updated for floating gradient UI */}
+            <div className={`relative h-full transition-all duration-300 ease-in-out ${isCanvasOpen ? (isFullScreen ? 'hidden' : 'w-1/2 border-r border-gray-200') : 'w-full max-w-4xl mx-auto'}`}>
 
-                {/* Scrollable Chat Area (Flex-1 allows it to take remaining space above search bar) */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                <div className="absolute inset-0 overflow-y-auto p-6 pb-48 space-y-8 scroll-smooth">
 
-                    {/* Map through all messages to create the continuous chat feed */}
                     {messages.map((msg) => (
                         <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-
                             {msg.role === 'user' ? (
-                                /* User Bubble */
                                 <div className="bg-gray-100 text-gray-900 px-5 py-3 rounded-3xl max-w-[80%] shadow-sm">
                                     {msg.content}
                                 </div>
                             ) : (
-                                /* AI Bubble */
                                 <div className="flex items-start gap-4 max-w-[90%] w-full">
                                     <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-1">
                                         <Bot size={18} className="text-blue-600" />
@@ -176,9 +162,8 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
                                             </ReactMarkdown>
                                         </div>
 
-                                        {/* Show 3D button inside the specific message that generated it */}
                                         {msg.code && (
-                                            <div className="border border-gray-200 rounded-2xl p-4 flex items-center justify-between bg-[#fbfbfb] hover:bg-gray-50 transition-colors w-full max-w-md mt-4">
+                                            <div className="border border-gray-200 rounded-2xl p-4 flex items-center justify-between bg-[#fbfbfb] hover:bg-gray-50 transition-colors w-full max-w-md mt-4 relative z-20">
                                                 <div className="flex items-center gap-3">
                                                     <div className="bg-white border border-gray-200 p-2 rounded-lg">
                                                         <Code size={18} className="text-gray-600" />
@@ -188,7 +173,7 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
                                                         <p className="text-xs text-gray-500">Three.js Canvas Ready</p>
                                                     </div>
                                                 </div>
-                                                <button onClick={() => setIsCanvasOpen(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium px-4 py-1.5 rounded-full text-sm transition-colors">
+                                                <button onClick={() => setIsCanvasOpen(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium px-4 py-1.5 rounded-full text-sm transition-colors cursor-pointer relative z-20">
                                                     Open
                                                 </button>
                                             </div>
@@ -199,7 +184,6 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
                         </div>
                     ))}
 
-                    {/* Loading Indicator */}
                     {isLoading && (
                         <div className="flex items-start gap-4 max-w-[90%]">
                             <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-1">
@@ -212,13 +196,12 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
                         </div>
                     )}
 
-                    {/* Invisible div to anchor the auto-scroll */}
-                    <div ref={messagesEndRef} />
+                    <div ref={messagesEndRef} className="h-4 shrink-0" />
                 </div>
 
-                {/* Input Bar pinned to bottom using flex shrink (NO absolute positioning!) */}
-                <div className="shrink-0 p-6 bg-white border-t border-gray-100">
-                    <div className={`${isCanvasOpen ? 'w-full' : 'max-w-3xl mx-auto'}`}>
+                {/* Floating Search Bar with Gradient */}
+                <div className="absolute bottom-0 left-0 w-full pt-20 pb-6 px-6 bg-gradient-to-t from-white via-white/90 to-transparent z-10 pointer-events-none">
+                    <div className={`pointer-events-auto ${isCanvasOpen ? 'w-full' : 'max-w-3xl mx-auto'}`}>
                         <SearchBar
                             prompt={prompt}
                             setPrompt={setPrompt}
@@ -242,7 +225,6 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
                 </div>
                 <div className="flex-1 p-4">
                     <div className="w-full h-full bg-black rounded-xl border border-gray-200 overflow-hidden relative shadow-inner">
-                        {/* We use the code from the MOST RECENT message that has code */}
                         {latestCanvasCode ? (
                             <>
                                 <iframe

@@ -4,12 +4,14 @@ from api.routes import router as api_router
 
 app = FastAPI(title="SeeKro Backend Engine")
 
-# Development CORS policy: allow all origins for browser preflight reliability.
-# Do not use this as-is for production deployments.
+# Corrected CORS policy for Next.js compatibility
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000"
+    ], # Explicitly allow your frontend
+    allow_credentials=True, # Must be True when specific origins are listed
     allow_methods=["*"],
     allow_headers=["*"],
 )
