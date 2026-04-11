@@ -125,8 +125,8 @@ export default function Sidebar({
           <div className="p-4 flex items-center justify-between shrink-0">
             {!isCompact && (
               <div onClick={handleHomeAction} className="flex items-center space-x-2 font-bold text-xl cursor-pointer hover:opacity-80 transition-opacity">
-                <div className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center font-bold text-lg">P</div>
-                <span>Pragnya AI</span>
+                <div className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center font-bold text-lg">B</div>
+                <span>Bodh AI</span>
               </div>
             )}
             <button

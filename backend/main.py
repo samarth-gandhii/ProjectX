@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router as api_router
 
-app = FastAPI(title="Pragnya AI Backend Engine")
+app = FastAPI(title="Bodh AI Backend Engine")
 
 # Corrected CORS policy for Next.js compatibility
 app.add_middleware(
@@ -21,4 +21,4 @@ app.include_router(api_router, prefix="/api")
 
 @app.get("/")
 async def root():
-    return {"status": "Pragnya AI Engine is running."}
+    return {"status": "Bodh AI Engine is running."}

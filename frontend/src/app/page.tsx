@@ -49,7 +49,7 @@ export default function Home() {
       <main className="flex-1 overflow-y-auto bg-white relative flex flex-col min-w-0 md:ml-64">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 md:px-8 pt-14 sm:pt-16 md:pt-20 pb-10 md:pb-12 w-full">
           <div className="text-center mb-8 md:mb-10">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold text-gray-900">Welcome to Pragnya AI, ready to learn?</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold text-gray-900">Welcome to Bodh AI, ready to learn?</h1>
           </div>
 
           <SearchBar

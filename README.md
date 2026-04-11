@@ -1,6 +1,6 @@
-# Pragnya AI
+# Bodh AI
 
-Pragnya AI is a full-stack learning assistant that combines a Next.js frontend with a FastAPI backend to generate interactive educational content. It supports:
+Bodh AI is a full-stack learning assistant that combines a Next.js frontend with a FastAPI backend to generate interactive educational content. It supports:
 
 - Text explanations
 - Quiz generation
