@@ -6,6 +6,7 @@ class GenerateRequest(BaseModel):
     history: Optional[list[dict[str, str]]] = []
     model_choice: Optional[str] = "Gemini 2.5 Flash"  # Updated default
     context_type: Optional[str] = "Text"              # Updated default
+    architect_choice: Optional[str] = "Gemini"         # New prompt architect model
 
 class GenerateResponse(BaseModel):
     text_explanation: str

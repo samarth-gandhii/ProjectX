@@ -10,17 +10,21 @@ interface SearchBarProps {
   setSelectedModel: (val: string) => void;
   contentType: string;
   setContentType: (val: string) => void;
+  architectModel?: string;
+  setArchitectModel?: (val: string) => void;
 }
 
 const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
-  ({ prompt, setPrompt, onGenerate, selectedModel, setSelectedModel, contentType, setContentType }, ref) => {
+  ({ prompt, setPrompt, onGenerate, selectedModel, setSelectedModel, contentType, setContentType, architectModel = "Gemini", setArchitectModel }, ref) => {
     // Dropdown states (UI only)
     const [isAutoOpen, setIsAutoOpen] = useState(false);
     const [isContextOpen, setIsContextOpen] = useState(false);
+    const [isArchitectOpen, setIsArchitectOpen] = useState(false);
 
     // Refs for clicking outside
     const autoRef = useRef<HTMLDivElement>(null);
     const contextRef = useRef<HTMLDivElement>(null);
+    const architectRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
       function handleClickOutside(event: MouseEvent) {
@@ -29,6 +33,9 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
         }
         if (contextRef.current && !contextRef.current.contains(event.target as Node)) {
           setIsContextOpen(false);
+        }
+        if (architectRef.current && !architectRef.current.contains(event.target as Node)) {
+          setIsArchitectOpen(false);
         }
       }
       document.addEventListener("mousedown", handleClickOutside);
@@ -69,7 +76,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
             ref={ref}
             type="text"
             placeholder={contentType ? "Continue typing..." : "Learn anything / Generate 3D Scene..."}
-              className="w-full p-2.5 sm:p-3 outline-none text-sm sm:text-base text-gray-800 placeholder-gray-400 bg-transparent flex-1 min-w-0"
+            className="w-full p-2.5 sm:p-3 outline-none text-sm sm:text-base text-gray-800 placeholder-gray-400 bg-transparent flex-1 min-w-0"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -139,6 +146,39 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
                 </div>
               )}
             </div>
+
+            {/* Start of architect */}
+            {/* Architect Selector Dropdown */}
+
+            <div className="relative" ref={architectRef}>
+              <button
+                onClick={() => setIsArchitectOpen(!isArchitectOpen)}
+                className="text-xs text-purple-600 hover:bg-purple-50 px-2 py-1 rounded flex items-center gap-1 border border-purple-200 transition-colors bg-purple-50/50 font-medium whitespace-nowrap max-w-40"
+              >
+                <Sparkles size={12} className="text-purple-500" />
+                <span className="truncate">Architect: {architectModel}</span>
+                <ChevronDown size={12} className="ml-1 text-purple-400" />
+              </button>
+
+              {isArchitectOpen && (
+                <div className="absolute bottom-full left-0 mb-2 w-44 sm:w-48 bg-white border border-gray-200 shadow-lg rounded-xl p-1 z-50">
+                  <button
+                    onClick={() => { setArchitectModel?.("Gemini"); setIsArchitectOpen(false); }}
+                    className="w-full flex items-center gap-2 p-2 hover:bg-gray-50 rounded-lg text-sm text-gray-700"
+                  >
+                    <Sparkles size={14} className="text-amber-500" /> Gemini
+                  </button>
+                  <button
+                    onClick={() => { setArchitectModel?.("Falcon"); setIsArchitectOpen(false); }}
+                    className="w-full flex items-center gap-2 p-2 hover:bg-gray-50 rounded-lg text-sm text-gray-700"
+                  >
+                    <Bot size={14} className="text-gray-500" /> Falcon
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/*end of architect */}
 
           </div>
 

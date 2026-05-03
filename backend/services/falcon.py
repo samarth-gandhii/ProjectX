@@ -1,7 +1,6 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from services.llm_client import blueprint_llm
-# from services.llm_client import falcon_llm
-
+from services.llm_client import falcon_llm
 # ---------------------------------------------------------
 # 1. TEXT ROUTE (Markdown & Flowcharts)
 # ---------------------------------------------------------
@@ -20,7 +19,7 @@ async def generate_falcon_text(prompt: str) -> str:
 # ---------------------------------------------------------
 # 2. PIPELINE ROUTE (The Architect with Memory)
 # ---------------------------------------------------------
-async def expand_prompt(prompt: str, history: list, context_type: str) -> str:
+async def expand_prompt(prompt: str, history: list, context_type: str, architect_choice: str = "Gemini") -> str:
     """
     Acts as the Prompt Engineer for Gemini. 
     Uses sliding window history to maintain context.
@@ -55,8 +54,10 @@ Output ONLY the expanded prompt inside a single block. No conversational intro."
     trimmed_history = history[-4:] if history else []
 
     # 4. Execute the Chain
-    # chain = prompt_template | falcon_llm
-    chain = prompt_template | blueprint_llm
+    if architect_choice in ["Ollama", "Falcon"]:
+        chain = prompt_template | falcon_llm
+    else:
+        chain = prompt_template | blueprint_llm
     
     response = await chain.ainvoke({
         "chat_history": trimmed_history,

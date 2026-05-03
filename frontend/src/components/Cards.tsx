@@ -54,6 +54,7 @@ export default function Cards({ topicId }: CardsProps) {
 
     const [selectedModel, setSelectedModel] = useState("Gemini 2.5 Flash");
     const [contentType, setContentType] = useState("Text");
+    const [architectModel, setArchitectModel] = useState("Gemini");
 
     const [isLoading, setIsLoading] = useState(false);
 
@@ -315,6 +316,8 @@ export default function Cards({ topicId }: CardsProps) {
                             setSelectedModel={setSelectedModel}
                             contentType={contentType}
                             setContentType={setContentType}
+                            architectModel={architectModel}
+                            setArchitectModel={setArchitectModel}
                         />
                     </div>
                 </div>

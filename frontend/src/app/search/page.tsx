@@ -24,6 +24,7 @@ function SearchPageContent() {
   const [prompt, setPrompt] = useState(query);
   const [selectedModel, setSelectedModel] = useState("Gemini 2.5 Flash");
   const [contentType, setContentType] = useState("Text");
+  const [architectModel, setArchitectModel] = useState("Gemini");
 
   useEffect(() => {
     setPrompt(query);
@@ -62,6 +63,8 @@ function SearchPageContent() {
             setSelectedModel={setSelectedModel}
             contentType={contentType}
             setContentType={setContentType}
+            architectModel={architectModel}
+            setArchitectModel={setArchitectModel}
           />
 
           <ContentGrid

@@ -47,6 +47,7 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
 
     const [selectedModel, setSelectedModel] = useState("Gemini 2.5 Flash");
     const [contentType, setContentType] = useState(initialContentType || "Text");
+    const [architectModel, setArchitectModel] = useState("Gemini");
 
     const [isLoading, setIsLoading] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -81,7 +82,8 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
                     prompt: userPrompt,
                     history: historyPayload,
                     model_choice: selectedModel,
-                    context_type: contentType || "Text"
+                    context_type: contentType || "Text",
+                    architect_choice: architectModel
                 }),
             });
 
@@ -265,6 +267,8 @@ export default function Space({ initialPrompt, initialContentType = "Text" }: Sp
                             setSelectedModel={setSelectedModel}
                             contentType={contentType}
                             setContentType={setContentType}
+                            architectModel={architectModel}
+                            setArchitectModel={setArchitectModel}
                         />
                     </div>
                 </div>

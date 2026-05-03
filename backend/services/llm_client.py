@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from langchain_ollama import OllamaLLM
+from langchain_community.llms import Ollama
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Load environment variables (like your GEMINI_API_KEY)
@@ -8,7 +8,7 @@ load_dotenv()
 
 # 1. Initialize Local Falcon 7B
 # Make sure Ollama is running on your machine and you have pulled the falcon model: `ollama run falcon`
-# falcon_llm = OllamaLLM(model="falcon3:7b") 
+falcon_llm = Ollama(model="falcon3:7b")
 
 # 2. Blueprint Expansion (API_KEY_1)
 blueprint_llm = ChatGoogleGenerativeAI(

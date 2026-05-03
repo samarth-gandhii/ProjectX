@@ -46,7 +46,7 @@ async def generate_content(request: GenerateRequest):
         if request.context_type == "Text" or not request.context_type:
             return await generate_text(request.prompt, request.model_choice)
   
-        detailed_blueprint = await expand_prompt(request.prompt, request.history,request.context_type)
+        detailed_blueprint = await expand_prompt(request.prompt, request.history, request.context_type, request.architect_choice)
 
         # Step 2: Gemini executes the complex blueprint
         if request.context_type == "3D_simulation":

@@ -12,6 +12,7 @@ export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [selectedModel, setSelectedModel] = useState("Gemini 2.5 Flash");
   const [contentType, setContentType] = useState("Text");
+  const [architectModel, setArchitectModel] = useState("Gemini");
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -20,6 +21,7 @@ export default function Home() {
     const params = new URLSearchParams({
       prompt,
       type: contentType || "Text",
+      architect: architectModel,
     });
     router.push(`/chat?${params.toString()}`);
     setPrompt("");
@@ -61,6 +63,8 @@ export default function Home() {
             setSelectedModel={setSelectedModel}
             contentType={contentType}
             setContentType={setContentType}
+            architectModel={architectModel}
+            setArchitectModel={setArchitectModel}
           />
 
           <ContentGrid onCardClick={handleCardSelect} />
